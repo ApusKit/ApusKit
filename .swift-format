@@ -1,0 +1,9 @@
+{
+  "version" : 1,
+  "rules" : {
+    "AllPublicDeclarationsHaveDocumentation" : true,
+    "NeverForceUnwrap" : true,
+    "NeverUseImplicitlyUnwrappedOptionals" : true,
+    "OrderedImports" : true
+  }
+}
