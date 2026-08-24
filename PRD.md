@@ -92,13 +92,13 @@ Built strictly in order. A milestone is **done** only when its gate passes as an
 
 > **Single source of truth for project state.** Rules: **PROG-1** update this section in the same PR that completes a deliverable; **PROG-2** a gate flips to ✅ only with a link to the passing check (CI run / test); **PROG-3** the README status section mirrors the *Current status* line below — regenerate it whenever this section changes; **PROG-4** completed items get a date.
 
-**Current status: 🔵 Pre-M0 — specification complete (PRD + TRD, 2026-08-24); implementation not started.**
+**Current status: 🔨 M0 in progress — package skeleton, core message/event types, `ScriptedProvider` and the agent loop landed with a green local `swift test` (2026-08-25); CI workflows not yet live, so the M0 gate stays un-flipped pending a link to a passing CI run (PROG-2).**
 
 Legend: ⬜ planned · 🔨 in progress · ✅ done
 
 | Milestone | Status | Gate evidence |
 |---|---|---|
-| M0 Skeleton | ⬜ | — |
+| M0 Skeleton | 🔨 | — |
 | M1 Real streaming | ⬜ | — |
 | M2 Sessions | ⬜ | — |
 | M3 Public 0.1.0 | ⬜ | — |
@@ -107,11 +107,11 @@ Legend: ⬜ planned · 🔨 in progress · ✅ done
 | M6 Hardening → 1.0 | ⬜ | — |
 
 ### M0 — Skeleton
-- [ ] Repository scaffold per TRD layout; manifest rules applied
-- [ ] Core message/event types
-- [ ] ScriptedProvider (F1.5)
-- [ ] Loop skeleton: multi-turn + tool execution on scripted provider (F4.1, F4.3)
-- [ ] First test suites + CI jobs live
+- [x] Repository scaffold per TRD layout; manifest rules applied (2026-08-25)
+- [x] Core message/event types (2026-08-25)
+- [x] ScriptedProvider (F1.5) (2026-08-25)
+- [x] Loop skeleton: multi-turn + tool execution on scripted provider (F4.1, F4.3) (2026-08-25)
+- [ ] First test suites + CI jobs live — test suites are in and green locally; CI workflows not yet added
 - [ ] **Gate:** scripted multi-turn + fake tool round-trip green in CI
 
 ### M1 — Real streaming

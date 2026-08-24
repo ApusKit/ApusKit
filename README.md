@@ -14,13 +14,13 @@ never hardcodes a vendor.
 
 ## Status
 
-**Current status: 🔵 Pre-M0 — specification complete (PRD + TRD, 2026-08-24); implementation not started.**
+**Current status: 🔨 M0 in progress — package skeleton, core message/event types, `ScriptedProvider` and the agent loop landed with a green local `swift test` (2026-08-25); CI workflows not yet live, so the M0 gate stays un-flipped pending a link to a passing CI run (PROG-2).**
 
 Legend: ⬜ planned · 🔨 in progress · ✅ done
 
 | Milestone | Status | Gate evidence |
 |---|---|---|
-| M0 Skeleton | ⬜ | — |
+| M0 Skeleton | 🔨 | — |
 | M1 Real streaming | ⬜ | — |
 | M2 Sessions | ⬜ | — |
 | M3 Public 0.1.0 | ⬜ | — |
