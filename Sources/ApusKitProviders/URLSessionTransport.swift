@@ -48,8 +48,8 @@ public struct URLSessionTransport: StreamingHTTPTransport {
   /// response — an SSE body that dribbles in arrives at the consumer only
   /// when the connection closes — so a chunk is emitted per byte read.
   /// `Data` stores a payload this small inline, so no heap allocation is
-  /// incurred per chunk. Package-access so tests can drive it from a
-  /// hand-fed byte sequence with no network (`ASM-3`, `TEST-2`).
+  /// incurred per chunk. Package-access (`PKG-8`) so tests can drive it
+  /// from a hand-fed byte sequence with no network (`TEST-2`).
   package static func forwardBytes<Bytes: AsyncSequence>(
     _ bytes: Bytes,
     to continuation: AsyncThrowingStream<HTTPStreamChunk, any Error>.Continuation
@@ -59,8 +59,8 @@ public struct URLSessionTransport: StreamingHTTPTransport {
     }
   }
 
-  /// Builds the `URLRequest` for `request`. Package-access so tests can
-  /// exercise request-building with no network (`ASM-3`).
+  /// Builds the `URLRequest` for `request`. Package-access (`PKG-8`) so
+  /// tests can exercise request-building with no network (`TEST-2`).
   package static func makeURLRequest(from request: HTTPStreamRequest) -> URLRequest {
     var urlRequest = URLRequest(url: request.url)
     urlRequest.httpMethod = request.method
@@ -72,8 +72,8 @@ public struct URLSessionTransport: StreamingHTTPTransport {
   }
 
   /// Maps a non-2xx (or non-HTTP) response to a `StreamError`, or returns
-  /// `nil` for a successful response. Package-access so tests can
-  /// exercise status mapping with no network (`ASM-3`).
+  /// `nil` for a successful response. Package-access (`PKG-8`) so tests
+  /// can exercise status mapping with no network (`TEST-2`).
   package static func mapNon2xxResponse(_ response: URLResponse) -> StreamError? {
     guard let httpResponse = response as? HTTPURLResponse else {
       return StreamError(code: .provider, message: "response was not an HTTP response")

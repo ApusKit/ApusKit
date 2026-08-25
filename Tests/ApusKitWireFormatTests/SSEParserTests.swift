@@ -109,17 +109,37 @@ struct SSEParserTests {
   /// The full reference stream used by ``splitAtEveryByteOffset(splitOffset:)``:
   /// two events, mixing CRLF and LF terminators, a comment line, and
   /// multi-line data — replayed split at every possible byte boundary.
+  ///
+  /// The data deliberately carries 2-, 3- and 4-byte UTF-8 sequences, so
+  /// some split offsets land *inside* a code point. R1 requires surviving
+  /// exactly that, and an all-ASCII stream cannot exercise it: a mutant
+  /// dropping trailing bytes >= 0x80 at a chunk boundary passed the whole
+  /// suite while this fixture was ASCII-only.
   private static let fullStream = Array(
-    "event: greeting\r\nid: 1\r\n: a comment\r\ndata: hello\r\ndata: world\r\n\r\ndata: second\n\n"
+    "event: greeting\r\nid: 1\r\n: a comment\r\ndata: héllo\r\ndata: 世界 🌍\r\n\r\ndata: second\n\n"
       .utf8
   )
+
+  /// What ``fullStream`` must parse to, written out rather than derived.
+  ///
+  /// The oracle is a literal on purpose: deriving it from a second
+  /// `SSEParser` would let a symmetric misparse agree with itself and pass.
+  private static let expectedEvents = [
+    SSEEvent(event: "greeting", data: "héllo\n世界 🌍", id: "1"),
+    SSEEvent(data: "second"),
+  ]
+
+  @Test("the reference stream parses to the expected events in one feed")
+  func fullStreamParsesToTheLiteralOracle() throws {
+    var parser = SSEParser()
+    #expect(try parser.feed(Self.fullStream) == Self.expectedEvents)
+  }
 
   @Test(
     "splitting the same input at every byte offset produces the same events",
     arguments: 0...fullStream.count)
   func splitAtEveryByteOffset(splitOffset: Int) throws {
-    var referenceParser = SSEParser()
-    let expected = try referenceParser.feed(Self.fullStream)
+    let expected = Self.expectedEvents
 
     var parser = SSEParser()
     let first = Self.fullStream[..<splitOffset]

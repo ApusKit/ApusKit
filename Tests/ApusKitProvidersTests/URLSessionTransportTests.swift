@@ -1,7 +1,8 @@
 // URLSessionTransportTests
 //
 // Coverage for URLSessionTransport: the request-building and status-mapping
-// helpers (ASM-3), the byte pump, and `stream(_:)` end to end against a
+// helpers (package-access per PKG-8), the byte pump, and `stream(_:)` end
+// to end against a
 // real loopback socket. TEST-2 rules out URLProtocol stubbing, so the only
 // honest way to drive `URLSession.bytes(for:)` is to give it a real server
 // to talk to.
@@ -76,11 +77,31 @@ struct URLSessionTransportTests {
     #expect(error?.code == .provider)
   }
 
-  @Test("init takes the URLSession by injection")
-  func initTakesSessionByInjection() {
-    // Proves there is no default parameter reaching `URLSession.shared`:
-    // an explicit session must be supplied to construct a transport.
-    _ = URLSessionTransport(session: URLSession(configuration: .ephemeral))
+  @Test(
+    "stream issues its request through the injected session (DI-3)",
+    .timeLimit(.minutes(1))
+  )
+  func streamUsesTheInjectedSession() async throws {
+    // `session` is private, so DI-3 has no surface to read directly. The
+    // injected session is instead given a configuration nothing else would
+    // have — a 50 ms request timeout — against a server that accepts the
+    // connection and never answers. A transport honouring the injection
+    // fails almost immediately; one that quietly substituted
+    // `URLSession.shared` would sit on that session's 60 s default.
+    // Constructing the type and discarding it, as this test used to, asserted
+    // nothing: `init(session: URLSession = .shared)` left the suite green.
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.timeoutIntervalForRequest = 0.05
+    let port = try #require(LoopbackHTTPServer.start(response: "", ending: .hold))
+    let url = try #require(URL(string: "http://127.0.0.1:\(port)/v1/stream"))
+    let transport = URLSessionTransport(session: URLSession(configuration: configuration))
+
+    let clock = ContinuousClock()
+    let started = clock.now
+    await #expect(throws: (any Error).self) {
+      for try await _ in transport.stream(HTTPStreamRequest(url: url)) {}
+    }
+    #expect(clock.now - started < .seconds(5))
   }
 
   @Test(

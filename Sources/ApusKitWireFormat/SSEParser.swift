@@ -58,6 +58,7 @@ public struct SSEParseError: Sendable, Equatable, Error {
 /// the event accumulated so far, if it had any content.
 public struct SSEParser: Sendable {
   private var buffer: [UInt8] = []
+  private var consumed = 0
   private var searchIndex = 0
 
   private var eventType: String?
@@ -86,16 +87,26 @@ public struct SSEParser: Sendable {
   public mutating func feed(_ bytes: some Sequence<UInt8>) throws(SSEParseError) -> [SSEEvent] {
     buffer.append(contentsOf: bytes)
 
-    while let bounds = nextLineBounds() {
-      // The consumed line leaves the buffer even if `processLine` throws,
-      // so a single malformed line cannot wedge the parser (R1).
-      defer {
-        buffer.removeFirst(bounds.nextStart)
-        searchIndex = 0
+    // Lines are retired by advancing `consumed`, and the buffer is drained
+    // exactly once per call. Removing each line's bytes as it was parsed
+    // shifted the whole remaining buffer per line, making one `feed` call
+    // O(bytes x lines) — measurably quadratic on a many-line chunk, against
+    // both the complexity documented above and WIRE-2's "allocation-conscious".
+    // The `defer` also runs on the throwing path, so a malformed line cannot
+    // wedge the parser (R1).
+    defer {
+      if consumed > 0 {
+        buffer.removeFirst(consumed)
+        searchIndex -= consumed
+        consumed = 0
       }
-      // The slice stays a temporary so it is released before `defer`
-      // mutates `buffer`, avoiding a copy-on-write copy per line.
-      if let event = try processLine(buffer[buffer.startIndex..<bounds.lineEnd]) {
+    }
+
+    while let bounds = nextLineBounds() {
+      let lineStart = consumed
+      consumed = bounds.nextStart
+      searchIndex = consumed
+      if let event = try processLine(buffer[lineStart..<bounds.lineEnd]) {
         pendingEvents.append(event)
       }
     }
@@ -107,6 +118,10 @@ public struct SSEParser: Sendable {
 
   /// Finds the bounds of the next complete line in `buffer`, if any.
   ///
+  /// Indices are absolute into `buffer`; the line starts at `consumed`,
+  /// which `feed(_:)` advances. On a hit `searchIndex` is left to the
+  /// caller, which sets it to the new `consumed`.
+  ///
   /// Returns `(lineEnd, nextStart)`, where `lineEnd` is the index just
   /// past the line's content (terminator excluded) and `nextStart` is the
   /// index where the following line begins (terminator included). A
@@ -117,13 +132,11 @@ public struct SSEParser: Sendable {
     while i < buffer.count {
       let byte = buffer[i]
       if byte == 0x0A {
-        searchIndex = 0
         return (i, i + 1)
       }
       if byte == 0x0D {
         let next = i + 1
         if next < buffer.count {
-          searchIndex = 0
           if buffer[next] == 0x0A {
             return (i, next + 1)
           }
