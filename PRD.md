@@ -92,7 +92,7 @@ Built strictly in order. A milestone is **done** only when its gate passes as an
 
 > **Single source of truth for project state.** Rules: **PROG-1** update this section in the same PR that completes a deliverable; **PROG-2** a gate flips to ✅ only with a link to the passing check (CI run / test); **PROG-3** the README status section mirrors the *Current status* line below — regenerate it whenever this section changes; **PROG-4** completed items get a date.
 
-**Current status: 🔨 M1 in progress — M0's package skeleton, core message/event types, `ScriptedProvider` and agent loop are in place; M1 has landed its wire-format foundation (the `ApusKitWireFormat` target, the incremental SSE parser, the partial-JSON accumulator, and the default `URLSessionTransport`) with a green local `swift test` (2026-08-25); no CI run has been observed yet, so no gate is flipped pending a link to a passing CI run (PROG-2).**
+**Current status: 🔨 M1 in progress — M0's package skeleton, core message/event types, `ScriptedProvider` and agent loop are in place; M1's wire-format foundation (the `ApusKitWireFormat` target, the incremental SSE parser, the partial-JSON accumulator, and the default `URLSessionTransport`) is landed, and M1 now also has its three built-in `APIImplementation`s — `anthropic-messages` (including `cache_control` prompt-caching passthrough via `LLMRequest.cacheBreakpoints`, `docs/proposals/0002`), `openai-completions`, `openai-responses` (F1.1) — plus the built-in provider catalog (`ModelProvider.anthropic`/`.openAI`/`.google`/`.openRouter`/`.groq`/`.ollama`), `ProviderRegistry` resolution to a streaming `ProviderConnection`, and per-request usage/cost accounting via `Usage.cost(at:)` (F1.4), with a green local `swift test` (127 tests, 26 suites) (2026-08-25); typed tools (F2.1–F2.4) remain outstanding, no CI run has been observed yet, so no gate is flipped pending a link to a passing CI run (PROG-2).**
 
 Legend: ⬜ planned · 🔨 in progress · ✅ done
 
@@ -116,9 +116,9 @@ Legend: ⬜ planned · 🔨 in progress · ✅ done
 
 ### M1 — Real streaming
 - [x] Wire-format kernels (SSE, partial-JSON accumulator) (2026-08-25)
-- [ ] `anthropic-messages`, `openai-completions`, `openai-responses` implementations (F1.1)
+- [x] `anthropic-messages`, `openai-completions`, `openai-responses` implementations (F1.1) (2026-08-25)
 - [x] Transport seam + default URLSession transport (2026-08-25)
-- [ ] Provider catalog + registry, usage/cost accounting (F1.4)
+- [x] Provider catalog + registry, usage/cost accounting (F1.4) (2026-08-25)
 - [ ] Typed tools: schema derivation, validation, truncation, progress/cancel (F2.1–F2.4)
 - [ ] **Gate:** live smoke vs Anthropic + OpenAI + injected custom-endpoint provider (F1.2)
 

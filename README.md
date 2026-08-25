@@ -14,7 +14,7 @@ never hardcodes a vendor.
 
 ## Status
 
-**Current status: 🔨 M1 in progress — M0's package skeleton, core message/event types, `ScriptedProvider` and agent loop are in place; M1 has landed its wire-format foundation (the `ApusKitWireFormat` target, the incremental SSE parser, the partial-JSON accumulator, and the default `URLSessionTransport`) with a green local `swift test` (2026-08-25); no CI run has been observed yet, so no gate is flipped pending a link to a passing CI run (PROG-2).**
+**Current status: 🔨 M1 in progress — M0's package skeleton, core message/event types, `ScriptedProvider` and agent loop are in place; M1's wire-format foundation (the `ApusKitWireFormat` target, the incremental SSE parser, the partial-JSON accumulator, and the default `URLSessionTransport`) is landed, and M1 now also has its three built-in `APIImplementation`s — `anthropic-messages` (including `cache_control` prompt-caching passthrough via `LLMRequest.cacheBreakpoints`, `docs/proposals/0002`), `openai-completions`, `openai-responses` (F1.1) — plus the built-in provider catalog (`ModelProvider.anthropic`/`.openAI`/`.google`/`.openRouter`/`.groq`/`.ollama`), `ProviderRegistry` resolution to a streaming `ProviderConnection`, and per-request usage/cost accounting via `Usage.cost(at:)` (F1.4), with a green local `swift test` (127 tests, 26 suites) (2026-08-25); typed tools (F2.1–F2.4) remain outstanding, no CI run has been observed yet, so no gate is flipped pending a link to a passing CI run (PROG-2).**
 
 Legend: ⬜ planned · 🔨 in progress · ✅ done
 

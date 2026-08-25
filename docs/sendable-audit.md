@@ -49,7 +49,12 @@ public type.
 | `ModelProvider` | struct | explicit |
 | `ProviderAuth` | enum | explicit |
 | `ProviderRegistry` | struct | explicit |
+| `ProviderRegistryError` | struct (`Error`) | explicit |
+| `ProviderRegistryError.Code` | enum (`@nonexhaustive(warn)`) | explicit |
 | `ScriptedProvider` | struct | implicit (conforms to `APIImplementation: Sendable`; both stored properties — `APIImplementationID` and a private `actor` script cursor — are `Sendable`) |
+| `AnthropicMessagesAPI` | struct | implicit (conforms to `APIImplementation: Sendable`; its only stored property, `APIImplementationID`, is `Sendable`) |
+| `OpenAICompletionsAPI` | struct | implicit (conforms to `APIImplementation: Sendable`; its only stored property, `APIImplementationID`, is `Sendable`) |
+| `OpenAIResponsesAPI` | struct | implicit (conforms to `APIImplementation: Sendable`; its only stored property, `APIImplementationID`, is `Sendable`) |
 | `HTTPStreamRequest` | struct | explicit |
 | `HTTPStreamChunk` | struct | explicit |
 | `StreamingHTTPTransport` | protocol | explicit (protocol refines `Sendable`) |

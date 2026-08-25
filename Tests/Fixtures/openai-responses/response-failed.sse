@@ -1,0 +1,6 @@
+event: response.created
+data: {"type":"response.created","response":{"id":"resp_456","object":"response","status":"in_progress"}}
+
+event: response.failed
+data: {"type":"response.failed","response":{"id":"resp_456","status":"failed","error":{"code":"server_error","message":"the model is overloaded"}}}
+

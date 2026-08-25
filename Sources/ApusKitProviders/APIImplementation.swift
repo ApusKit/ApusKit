@@ -55,11 +55,28 @@ public struct LLMRequest: Sendable, Equatable {
   /// An optional system prompt.
   public var systemPrompt: String?
 
+  /// Indices into `messages` marking prompt-cache breakpoints (`PROV-2`).
+  ///
+  /// Each index names a message whose trailing content is a natural
+  /// prompt-cache boundary: everything up to and including that message is
+  /// intended to be cached together. This is a provider-neutral *hint* —
+  /// context itself carries no provider-specific state. The Anthropic
+  /// adapter renders each breakpoint as `cache_control` on the
+  /// corresponding message's last content block; the OpenAI adapters have
+  /// no equivalent wire concept and ignore this field without error.
+  public var cacheBreakpoints: Set<Int>
+
   /// Creates a request.
-  public init(model: String, messages: [LLMRequestMessage], systemPrompt: String? = nil) {
+  public init(
+    model: String,
+    messages: [LLMRequestMessage],
+    systemPrompt: String? = nil,
+    cacheBreakpoints: Set<Int> = []
+  ) {
     self.model = model
     self.messages = messages
     self.systemPrompt = systemPrompt
+    self.cacheBreakpoints = cacheBreakpoints
   }
 }
 
