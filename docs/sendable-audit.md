@@ -43,6 +43,7 @@ public type.
 | `APIImplementationID` | struct | explicit |
 | `LLMRequestMessage` | enum | explicit |
 | `LLMRequest` | struct | explicit |
+| `ToolDefinition` | struct | explicit |
 | `ProviderConnection` | struct | explicit |
 | `APIImplementation` | protocol | explicit (protocol refines `Sendable`) |
 | `ModelInfo` | struct | explicit |
@@ -65,11 +66,12 @@ public type.
 | Type | Kind | Sendable |
 |---|---|---|
 | `Tool` | protocol | explicit (protocol refines `Sendable`) |
-| `AnyAgentTool` | struct | explicit |
+| `AnyAgentTool` | struct | explicit (now also exposes a public `schema: JSONValue`, derived the same way `execute` validates arguments against it) |
 | `ToolRegistry` | struct | explicit |
 | `ToolResult` | struct | explicit |
 | `ToolCancellationSignal` | struct | explicit |
 | `ToolUpdate` | struct | explicit |
+| `TruncatedText` | struct | explicit |
 
 ## ApusKitAgent
 
