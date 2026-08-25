@@ -7,6 +7,7 @@ public import ApusKitTools
 /// Not wire-facing — this is an in-process observation stream, not a
 /// persisted format — so unlike `StreamEvent`/`StopReason` it is a plain
 /// (exhaustive) public enum.
+@nonexhaustive(warn)
 public enum AgentEvent: Sendable, Equatable {
   /// A run has started processing its queued messages.
   case agentStart

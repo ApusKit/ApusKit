@@ -33,6 +33,7 @@ extension APIImplementationID {
 /// provider-neutral (`PROV-2`): no provider-specific state is smuggled
 /// into the conversation, and switching providers mid-session requires no
 /// message conversion.
+@nonexhaustive(warn)
 public enum LLMRequestMessage: Sendable, Equatable {
   /// A message from the user.
   case user(UserMessage)

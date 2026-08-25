@@ -230,7 +230,7 @@ Re-exports every target. Zero logic. Nothing else.
 - **ERR-2** Public error types are **structs with a `@nonexhaustive` `Code` enum** — never monolithic public enums.
 
 ### Enums & evolution
-- **ENUM-1** Wire-facing enums (`StreamEvent`, `StopReason`, error codes) are `@nonexhaustive(warn)` now → `@nonexhaustive` at 1.0. Consumers write `@unknown default`.
+- **ENUM-1** **Every public enum on an evolving surface** is `@nonexhaustive(warn)` now → `@nonexhaustive` at 1.0; consumers write `@unknown default`. That is not only the wire-facing ones: it covers persisted content (`ContentBlock` — `CORE-2` calls it wire-stable, and a `.video`/`.document` case is a matter of time), the observation surface (`AgentEvent`), request shapes (`LLMRequestMessage`) and configuration whose options grow (`ProviderAuth` — OAuth), alongside `StreamEvent`, `StopReason` and error `Code`s. A public enum is exhaustive to its consumers by default, so every case added later is a source break; the ones that hurt most arrive exactly at 1.0. **A new public enum is `@nonexhaustive(warn)` unless its case set is genuinely closed forever.**
 - **EVO-1** A new protocol requirement always ships with a default implementation.
 - **EVO-2** Deprecation: `@available(*, deprecated, renamed:/message:)` at least one minor release before removal.
 

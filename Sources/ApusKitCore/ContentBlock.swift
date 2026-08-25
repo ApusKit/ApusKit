@@ -6,6 +6,7 @@ public import Foundation
 /// Assistant messages are built up from a sequence of content blocks as a
 /// provider streams a response; user messages and tool results carry
 /// content blocks too.
+@nonexhaustive(warn)
 public enum ContentBlock: Sendable, Codable, Equatable {
   /// Plain text content.
   case text(String)

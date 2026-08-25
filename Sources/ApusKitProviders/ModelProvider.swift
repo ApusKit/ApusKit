@@ -2,6 +2,7 @@ public import ApusKitCore
 public import Foundation
 
 /// How to authenticate with a provider.
+@nonexhaustive(warn)
 public enum ProviderAuth: Sendable, Equatable {
   /// An API key sent in a provider-specific header.
   case apiKey(String)
