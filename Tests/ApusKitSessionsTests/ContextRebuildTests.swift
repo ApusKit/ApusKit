@@ -145,6 +145,89 @@ struct ContextRebuildTests {
     #expect(!dump(items).contains("\"turn2\""))
   }
 
+  @Test(
+    "with two compactions on the path, only the one closest to the leaf contributes"
+  )
+  func repeatedCompactionUsesTheCompactionClosestToTheLeaf() throws {
+    var session = Session(header: try Self.header())
+    let turn1User = SessionEntry(
+      id: try id("00000001"), parentID: nil, kind: .message(Self.userMessage("turn1")))
+    let turn1Reply = SessionEntry(
+      id: try id("00000002"), parentID: turn1User.id,
+      kind: .message(Self.assistantMessage("turn1 reply")))
+    let olderCompaction = SessionEntry(
+      id: try id("00000003"), parentID: turn1Reply.id,
+      kind: .compaction(
+        summary: "stale summary of turns 1-2",
+        retainedTail: [Self.userMessage("stale retained tail")],
+        replacedThrough: turn1Reply.id
+      ))
+    let turn3User = SessionEntry(
+      id: try id("00000004"), parentID: olderCompaction.id,
+      kind: .message(Self.userMessage("turn3")))
+    let newerCompaction = SessionEntry(
+      id: try id("00000005"), parentID: turn3User.id,
+      kind: .compaction(
+        summary: "fresh summary of everything so far",
+        retainedTail: [Self.userMessage("fresh retained tail")],
+        replacedThrough: turn3User.id
+      ))
+    let turn5Reply = SessionEntry(
+      id: try id("00000006"), parentID: newerCompaction.id,
+      kind: .message(Self.assistantMessage("turn5 reply")))
+    session.append(turn1User)
+    session.append(turn1Reply)
+    session.append(olderCompaction)
+    session.append(turn3User)
+    session.append(newerCompaction)
+    session.append(turn5Reply)
+
+    let items = try session.buildContext(leaf: turn5Reply.id)
+
+    #expect(
+      dump(items) == """
+        summary("fresh summary of everything so far")
+        message(user([text("fresh retained tail")]))
+        message(assistant([text("turn5 reply")], endTurn, Usage(inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0)))
+        """
+    )
+    // The older compaction, and everything it replaced, sit above the
+    // newer one: reaching them would mean walking past the compaction
+    // closest to the leaf.
+    #expect(!dump(items).contains("stale"))
+    #expect(!dump(items).contains("turn1"))
+    #expect(!dump(items).contains("turn3"))
+  }
+
+  @Test("a compaction entry that is itself the leaf contributes its summary and retainedTail")
+  func compactionAtTheLeafContributesSummaryAndRetainedTail() throws {
+    var session = Session(header: try Self.header())
+    let turn1User = SessionEntry(
+      id: try id("00000001"), parentID: nil, kind: .message(Self.userMessage("turn1")))
+    let compaction = SessionEntry(
+      id: try id("00000002"), parentID: turn1User.id,
+      kind: .compaction(
+        summary: "turn1 summarized",
+        retainedTail: [Self.userMessage("turn2 recent")],
+        replacedThrough: turn1User.id
+      ))
+    session.append(turn1User)
+    session.append(compaction)
+
+    let items = try session.buildContext(leaf: compaction.id)
+
+    // The compaction sits at index 0 of the leaf-to-root walk: the range
+    // kept must still include it, not stop short of it.
+    #expect(
+      dump(items) == """
+        summary("turn1 summarized")
+        message(user([text("turn2 recent")]))
+        """
+    )
+    // The message the compaction replaced must not appear verbatim.
+    #expect(!dump(items).contains("text(\"turn1\")"))
+  }
+
   @Test("buildContext(leaf:) throws unknownEntry for a leaf not in the tree")
   func buildContextThrowsForUnknownLeaf() throws {
     let session = Session(header: try Self.header())

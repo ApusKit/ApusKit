@@ -40,6 +40,10 @@ public struct JSONLFileSessionStore: SessionStore {
   }
 
   /// Appends `entry`'s encoded line to the session file for `sessionID`.
+  ///
+  /// If the existing file does not already end on a line terminator, one
+  /// is written before the entry, so appending to a file another writer
+  /// left unterminated still yields a readable session.
   public func appendEntry(_ entry: SessionEntry, toSessionID sessionID: EntryID) async throws {
     let url = fileURL(for: sessionID)
     guard FileManager.default.fileExists(atPath: url.path) else {
@@ -51,10 +55,24 @@ public struct JSONLFileSessionStore: SessionStore {
     let data = try JSONEncoder().encode(entry)
     // JSONEncoder always emits UTF-8 text, so this never actually loses bytes.
     let line = String(decoding: data, as: UTF8.self)
-    let appendedBytes = Data(JSONLCodec.encode([line]))
-    let handle = try FileHandle(forWritingTo: url)
+    var appendedBytes = Data(JSONLCodec.encode([line]))
+    // Opened for update, not writing, so the final byte can be read back
+    // below.
+    let handle = try FileHandle(forUpdating: url)
     defer { try? handle.close() }
-    try handle.seekToEnd()
+    let end = try handle.seekToEnd()
+    // A file written by someone else — a real pi v3 session, or a write
+    // cut short — may not end on `LF`. Appending straight onto it would
+    // concatenate two JSON objects onto one line and permanently break
+    // `loadSession`, so terminate that line first.
+    if end > 0 {
+      try handle.seek(toOffset: end - 1)
+      let lastByte = try handle.read(upToCount: 1)
+      if lastByte != Data([0x0A]) {
+        appendedBytes.insert(0x0A, at: appendedBytes.startIndex)
+      }
+      try handle.seekToEnd()
+    }
     try handle.write(contentsOf: appendedBytes)
   }
 

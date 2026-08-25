@@ -141,4 +141,71 @@ struct SessionStoreTests {
       #expect(ids == [idA, idB])
     }
   }
+
+  // Regression (TEST-7): `appendEntry` used to seek to end-of-file and
+  // write its line unconditionally. Against a file another writer left
+  // without a final `LF` — a real pi v3 session, or a write cut short —
+  // that concatenated two JSON objects onto one line and permanently
+  // broke `loadSession`.
+  @Test("appendEntry terminates an unterminated final line before appending")
+  func appendEntryTerminatesUnterminatedFinalLine() async throws {
+    try await withFileStore { store in
+      var generator = SeededGenerator(state: 7)
+      let sessionID = EntryID.random(using: &generator)
+      let header = SessionHeader(version: SessionHeader.currentVersion, sessionID: sessionID)
+      let foreignEntry = SessionEntry(
+        id: EntryID.random(using: &generator),
+        parentID: nil,
+        kind: .message(.user(UserMessage(content: [.text("written by someone else")])))
+      )
+
+      var bytes = try SessionFileCodec.encode(header: header, entries: [foreignEntry])
+      #expect(bytes.last == 0x0A)
+      bytes.removeLast()
+      try FileManager.default.createDirectory(
+        at: store.directoryURL,
+        withIntermediateDirectories: true
+      )
+      let url = store.directoryURL.appendingPathComponent("\(sessionID.hex).jsonl")
+      try Data(bytes).write(to: url, options: .atomic)
+
+      let appendedEntry = SessionEntry(
+        id: EntryID.random(using: &generator),
+        parentID: foreignEntry.id,
+        kind: .label(name: "checkpoint")
+      )
+      try await store.appendEntry(appendedEntry, toSessionID: sessionID)
+
+      let raw = try #require(FileManager.default.contents(atPath: url.path))
+      #expect(raw.filter { $0 == 0x0A }.count == 3)
+
+      let loaded = try await store.loadSession(sessionID: sessionID)
+      #expect(loaded.entries == [foreignEntry, appendedEntry])
+      #expect(loaded.trailing.isEmpty)
+    }
+  }
+
+  @Test("appendEntry does not insert a blank line when the file already ends on a terminator")
+  func appendEntryDoesNotDoubleTerminate() async throws {
+    try await withFileStore { store in
+      var generator = SeededGenerator(state: 9)
+      let sessionID = EntryID.random(using: &generator)
+      try await store.createSession(
+        header: SessionHeader(version: SessionHeader.currentVersion, sessionID: sessionID)
+      )
+      let entry = SessionEntry(
+        id: EntryID.random(using: &generator),
+        parentID: nil,
+        kind: .label(name: "checkpoint")
+      )
+      try await store.appendEntry(entry, toSessionID: sessionID)
+
+      let url = store.directoryURL.appendingPathComponent("\(sessionID.hex).jsonl")
+      let raw = try #require(FileManager.default.contents(atPath: url.path))
+      #expect(raw.filter { $0 == 0x0A }.count == 2)
+
+      let loaded = try await store.loadSession(sessionID: sessionID)
+      #expect(loaded.entries == [entry])
+    }
+  }
 }
