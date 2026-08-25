@@ -23,7 +23,6 @@ let agent = Agent(
   apiImplementation: provider,
   connection: ProviderConnection(baseURL: baseURL, auth: .none, transport: NeverCalledTransport()),
   model: "example-model",
-  pricing: Pricing(inputPerMillion: 1, outputPerMillion: 2),
   tools: ToolRegistry()
 )
 

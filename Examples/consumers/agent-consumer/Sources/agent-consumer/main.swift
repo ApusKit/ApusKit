@@ -5,11 +5,14 @@ import ApusKitTools
 import Foundation
 
 // Proves `ApusKitAgent` is usable with `ApusKitAgent` as the package's
-// only product dependency. Driving `Agent` for real still needs concrete
-// `ApusKitCore`/`ApusKitProviders`/`ApusKitTools` values (a provider, a
-// connection, a tool registry) — those modules are part of the build
-// graph transitively through `ApusKitAgent` and so remain importable here
-// without adding a second product dependency in Package.swift.
+// only product dependency — which is what DOC-3 gates. The sibling
+// imports above are required, not accidental: `public import` propagates
+// API-surface diagnostics but NOT transitive bare-name visibility, so a
+// consumer doing real work with `Agent` must still import the modules
+// declaring the types it spells. Only the `ApusKit` umbrella's
+// `@_exported public import` re-exports transitively — see
+// umbrella-consumer for that. Package.swift still declares exactly one
+// ApusKit product.
 struct NeverCalledTransport: StreamingHTTPTransport {
   func stream(_ request: HTTPStreamRequest) -> AsyncThrowingStream<HTTPStreamChunk, any Error> {
     AsyncThrowingStream { $0.finish() }
@@ -29,7 +32,6 @@ let agent = Agent(
   apiImplementation: provider,
   connection: ProviderConnection(baseURL: baseURL, auth: .none, transport: NeverCalledTransport()),
   model: "example-model",
-  pricing: Pricing(inputPerMillion: 1, outputPerMillion: 2),
   tools: ToolRegistry()
 )
 

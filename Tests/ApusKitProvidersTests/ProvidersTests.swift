@@ -59,8 +59,16 @@ struct ScriptedProviderTests {
     #expect(events == script)
   }
 
-  @Test("PROV-1: exactly one start first and one terminal event last")
-  func satisfiesProv1Ordering() async throws {
+  @Test("replays a PROV-1-shaped script with its ordering and contentIndex intact")
+  func replaysProv1ShapedScriptFaithfully() async throws {
+    // Scope, stated honestly: ScriptedProvider is a pure replayer and
+    // validates nothing, so this asserts REPLAY FIDELITY for a script that
+    // is already PROV-1-shaped — it cannot prove PROV-1 conformance of a
+    // provider in general. PROV-1's substantive clause, that the
+    // accumulator survives argument JSON split across arbitrary chunk
+    // boundaries, is pinned end-to-end against the real agent loop in
+    // ApusKitAgentTests ("argument JSON split across chunk boundaries is
+    // accumulated intact"), because in M0 the accumulator lives there.
     let script: [StreamEvent] = [
       .start,
       .toolCallStart(contentIndex: 0, id: "call_1", name: "search"),
@@ -189,8 +197,16 @@ struct ProviderCostTests {
       contextWindow: 128_000,
       pricing: Pricing(inputPerMillion: 5, outputPerMillion: 10)
     )
-    let usage = Usage(inputTokens: 1_000_000, outputTokens: 1_000_000)
+    // Asymmetric on BOTH axes on purpose: with equal token counts, or
+    // equal rates, a cost function that transposes the input and output
+    // rates produces the identical total and the test never notices.
+    let usage = Usage(inputTokens: 3_000_000, outputTokens: 1_000_000)
 
-    #expect(usage.cost(at: model.pricing) == 15)
+    #expect(usage.cost(at: model.pricing) == 25)
+
+    // Transposing the rates must change the answer, or the assertion above
+    // is not actually pinning which rate applies to which token count.
+    let transposed = Pricing(inputPerMillion: 10, outputPerMillion: 5)
+    #expect(usage.cost(at: transposed) == 35)
   }
 }

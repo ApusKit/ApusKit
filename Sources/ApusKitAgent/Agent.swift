@@ -6,7 +6,7 @@ public import ApusKitTools
 /// pi-ported agent run loop against an injected provider and tool set.
 ///
 /// Constructor-injected (`DI-1`): the provider, transport, and tools all
-/// arrive through `init(apiImplementation:connection:model:pricing:tools:systemPrompt:)`
+/// arrive through `init(apiImplementation:connection:model:tools:systemPrompt:)`
 /// — `Agent` holds no singletons and no global mutable state. Cancel an
 /// in-flight run with `abort()`; interruption is structured-concurrency
 /// cancellation (`LOOP-6`), never a detached task.
@@ -15,7 +15,6 @@ public actor Agent {
   let connection: ProviderConnection
   let model: String
   let systemPrompt: String?
-  let pricing: Pricing
   let tools: ToolRegistry
 
   var history: [LLMRequestMessage] = []
@@ -36,22 +35,18 @@ public actor Agent {
   ///   - apiImplementation: The provider wire adapter to stream turns through.
   ///   - connection: Where and how to reach the provider.
   ///   - model: The model identifier to request.
-  ///   - pricing: Used to compute `Usage.cost(at:)` for reporting (`PROV-3`);
-  ///     never hardcoded by `Agent` itself.
   ///   - tools: The tools available to the model during this conversation.
   ///   - systemPrompt: An optional system prompt sent with every request.
   public init(
     apiImplementation: any APIImplementation,
     connection: ProviderConnection,
     model: String,
-    pricing: Pricing,
     tools: ToolRegistry,
     systemPrompt: String? = nil
   ) {
     self.apiImplementation = apiImplementation
     self.connection = connection
     self.model = model
-    self.pricing = pricing
     self.tools = tools
     self.systemPrompt = systemPrompt
     (self.events, self.eventContinuation) = AsyncStream.makeStream()
@@ -76,6 +71,18 @@ public actor Agent {
     let result = await task.value
     runningTask = nil
     return result
+  }
+
+  /// How many follow-up messages are queued but not yet drained.
+  ///
+  /// `package`-visible per `PKG-8` (never `@_spi`, never `public`): the
+  /// `LOOP-1` outer-loop test has to wait until a concurrently queued
+  /// message has actually landed in the queue before it releases the
+  /// in-flight turn. Without an observable condition that test would have
+  /// to guess with a yield count, and a guess that lands wrong makes the
+  /// test pass for the wrong reason instead of failing.
+  package var queuedFollowUpCount: Int {
+    followUpQueue.count
   }
 
   /// Cancels any in-flight run.

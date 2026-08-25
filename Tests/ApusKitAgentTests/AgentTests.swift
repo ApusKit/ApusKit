@@ -29,7 +29,6 @@ private func makeAgent(provider: some APIImplementation, tools: [AnyAgentTool]) 
     connection: ProviderConnection(
       baseURL: baseURL, auth: .none, transport: NeverCalledTransport()),
     model: "test-model",
-    pricing: Pricing(inputPerMillion: 1, outputPerMillion: 2),
     tools: registry
   )
 }
@@ -48,15 +47,49 @@ private struct NeverCalledTransport: StreamingHTTPTransport {
   }
 }
 
+/// Every `ToolResultMessage` in `request`, in send order.
+private func toolResults(in request: LLMRequest) -> [ToolResultMessage] {
+  request.messages.compactMap { message in
+    if case .toolResult(let result) = message {
+      return result
+    }
+    return nil
+  }
+}
+
+/// The concatenated text of every user message in `request`, in order.
+private func userTexts(in request: LLMRequest) -> [String] {
+  request.messages.compactMap { message in
+    guard case .user(let user) = message else {
+      return nil
+    }
+    return text(of: user.content)
+  }
+}
+
+/// The concatenated text of `blocks`, ignoring non-text content.
+private func text(of blocks: [ContentBlock]) -> String {
+  blocks.compactMap { block in
+    if case .text(let text) = block {
+      return text
+    }
+    return nil
+  }.joined()
+}
+
 @Suite("Agent gate suite")
 struct AgentGateTests {
   @Test("scripted multi-turn tool round-trip ends in .endTurn")
   func multiTurnToolRoundTrip() async throws {
-    let provider = ScriptedProvider(scripts: [
-      ScriptedTurn.toolCall(
-        id: "call_1", name: "recording_tool", argumentsJSON: #"{"value":"hi"}"#),
-      ScriptedTurn.text("all done"),
-    ])
+    let log = RequestLog()
+    let provider = RequestRecordingProvider(
+      scripts: [
+        ScriptedTurn.toolCall(
+          id: "call_1", name: "recording_tool", argumentsJSON: #"{"value":"hi"}"#),
+        ScriptedTurn.text("all done"),
+      ],
+      log: log
+    )
     let tool = RecordingTool(result: ToolResult(content: [.text("tool output")]))
     let agent = makeAgent(provider: provider, tool: tool)
 
@@ -67,6 +100,45 @@ struct AgentGateTests {
 
     let calls = await tool.recordedCalls
     #expect(calls == [RecordingTool.Arguments(value: "hi")])
+
+    // The RETURN leg of the round-trip. Asserting only that the tool ran
+    // and that the second turn ended .endTurn leaves the gate's "the
+    // result feeds back" clause unpinned: ScriptedProvider ignores the
+    // request, so the second turn's text is preordained and stays green
+    // even if the ToolResultMessage is never appended to the history.
+    let requests = await log.requests
+    #expect(requests.count == 2)
+    let secondRequest = try #require(requests.last)
+    let results = toolResults(in: secondRequest)
+    #expect(results.map(\.toolCallID) == ["call_1"])
+    #expect(results.map(\.isError) == [false])
+    #expect(results.first?.content == [.text("tool output")])
+  }
+
+  @Test("PROV-1: argument JSON split across chunk boundaries is accumulated intact")
+  func splitArgumentChunksAccumulate() async throws {
+    // PROV-1 requires the accumulator to survive argument JSON split
+    // across arbitrary chunk boundaries. Every other script delivers the
+    // arguments in a single delta, which cannot detect an accumulator
+    // that drops, overwrites or reorders chunks.
+    let provider = ScriptedProvider(scripts: [
+      ScriptedTurn.toolCallSplit(
+        id: "call_1",
+        name: "recording_tool",
+        argumentChunks: [#"{"val"#, #"ue":"#, #""split ac"#, #"ross chunks"}"#]
+      ),
+      ScriptedTurn.text("all done"),
+    ])
+    let tool = RecordingTool()
+    let agent = makeAgent(provider: provider, tool: tool)
+
+    let final = await agent.run(UserMessage(content: [.text("please use the tool")]))
+    #expect(final.stopReason == .endTurn)
+
+    // Decoding at all proves the chunks were joined in order: any other
+    // ordering is invalid JSON and would surface as an error result.
+    let calls = await tool.recordedCalls
+    #expect(calls == [RecordingTool.Arguments(value: "split across chunks")])
   }
 
   @Test("LOOP-1: tool calls run even when the stop reason is not .toolUse")
@@ -97,11 +169,15 @@ struct AgentGateTests {
 
   @Test("TOOL-2/LOOP-3: a throwing tool becomes an error result without taking down the loop")
   func throwingToolBecomesErrorResultWithoutCrashing() async throws {
-    let provider = ScriptedProvider(scripts: [
-      ScriptedTurn.toolCall(
-        id: "call_1", name: "throwing_tool", argumentsJSON: #"{"value":"boom"}"#),
-      ScriptedTurn.text("recovered"),
-    ])
+    let log = RequestLog()
+    let provider = RequestRecordingProvider(
+      scripts: [
+        ScriptedTurn.toolCall(
+          id: "call_1", name: "throwing_tool", argumentsJSON: #"{"value":"boom"}"#),
+        ScriptedTurn.text("recovered"),
+      ],
+      log: log
+    )
     let agent = makeAgent(provider: provider, tool: ThrowingTool())
 
     let final = await agent.run(UserMessage(content: [.text("please use the tool")]))
@@ -109,6 +185,132 @@ struct AgentGateTests {
     // The loop survives the throwing tool and completes a second turn.
     #expect(final.stopReason == .endTurn)
     #expect(final.content == [.text("recovered")])
+
+    // Surviving is not enough: the model has to be TOLD the call failed,
+    // or it will read the failure as a success and carry on. Without this,
+    // hardcoding `isError` to false keeps the whole suite green.
+    let requests = await log.requests
+    let secondRequest = try #require(requests.last)
+    let results = toolResults(in: secondRequest)
+    #expect(results.map(\.toolCallID) == ["call_1"])
+    #expect(results.map(\.isError) == [true])
+  }
+
+  @Test("TOOL-2: an unknown tool name becomes an error result, not a crash or a silent skip")
+  func unknownToolBecomesErrorResult() async throws {
+    let log = RequestLog()
+    let provider = RequestRecordingProvider(
+      scripts: [
+        ScriptedTurn.toolCall(
+          id: "call_1", name: "no_such_tool", argumentsJSON: #"{"value":"hi"}"#),
+        ScriptedTurn.text("recovered"),
+      ],
+      log: log
+    )
+    let agent = makeAgent(provider: provider, tool: RecordingTool())
+
+    let final = await agent.run(UserMessage(content: [.text("please use the tool")]))
+    #expect(final.stopReason == .endTurn)
+
+    let requests = await log.requests
+    let secondRequest = try #require(requests.last)
+    let results = toolResults(in: secondRequest)
+    #expect(results.map(\.toolCallID) == ["call_1"])
+    #expect(results.map(\.isError) == [true])
+
+    let failure = try #require(results.first)
+    #expect(text(of: failure.content).contains("no_such_tool"))
+  }
+
+  @Test("LOOP-3: a provider error event ends the run as .error, without throwing out")
+  func providerErrorEventEndsRunAsError() async throws {
+    let provider = ScriptedProvider(scripts: [
+      ScriptedTurn.error(code: .provider, message: "provider rejected the request")
+    ])
+    let agent = makeAgent(provider: provider, tool: RecordingTool())
+
+    let final = await agent.run(UserMessage(content: [.text("hello")]))
+
+    // LOOP-3's .error half: without this, a mutant reporting provider
+    // failure as a successful .endTurn passes the entire suite — only the
+    // .aborted half was covered.
+    #expect(final.stopReason == .error)
+    #expect(text(of: final.content).contains("provider rejected the request"))
+  }
+
+  @Test("LOOP-3: a stream that throws ends the run as .error, without throwing out")
+  func throwingStreamEndsRunAsError() async throws {
+    // The other shape a real transport produces: the stream itself
+    // terminates with an error rather than delivering a StreamEvent.error.
+    let provider = ThrowingStreamProvider(
+      error: StreamError(code: .transport, message: "connection dropped"))
+    let agent = makeAgent(provider: provider, tool: RecordingTool())
+
+    let final = await agent.run(UserMessage(content: [.text("hello")]))
+
+    #expect(final.stopReason == .error)
+    #expect(text(of: final.content).contains("connection dropped"))
+  }
+
+  @Test(
+    "LOOP-1: the outer loop drains a message queued while a run is in flight",
+    .timeLimit(.minutes(1))
+  )
+  func outerLoopDrainsMessageQueuedMidRun() async throws {
+    // LOOP-1's OUTER loop. Every other test queues exactly one message per
+    // sequential run() call, so replacing the followUpQueue `while` drain
+    // with a single-shot `if` — silently dropping anything queued during
+    // an in-flight run — passes the whole suite.
+    let log = RequestLog()
+    let gate = FollowUpGate()
+    let provider = RequestRecordingProvider(
+      scripts: [
+        ScriptedTurn.toolCall(
+          id: "call_1", name: "gate_tool", argumentsJSON: #"{"value":"hold"}"#),
+        ScriptedTurn.text("first done"),
+        ScriptedTurn.text("second done"),
+      ],
+      log: log
+    )
+    let agent = makeAgent(provider: provider, tool: GateTool(gate: gate))
+    let events = await agent.events
+
+    let firstRun = Task { await agent.run(UserMessage(content: [.text("first")])) }
+
+    // Hold the run open inside tool execution, queue a second message into
+    // it, and only then let the tool finish.
+    await gate.waitUntilStarted()
+    let secondRun = Task { await agent.run(UserMessage(content: [.text("second")])) }
+    while await agent.queuedFollowUpCount == 0 {
+      await Task.yield()
+    }
+    await gate.release()
+
+    _ = await firstRun.value
+    _ = await secondRun.value
+
+    let requests = await log.requests
+    #expect(requests.count == 3)
+
+    // The second message reached the provider at all...
+    let sawSecondMessage = requests.contains { userTexts(in: $0).contains("second") }
+    #expect(sawSecondMessage)
+
+    // ...and it did so through the SAME run, not a fresh one. If the wait
+    // above ever landed after the drain finished, run() would have started
+    // a second agent run — which still sends the message, and would make
+    // this test pass without exercising the outer loop at all. Exactly one
+    // .agentStart is what distinguishes the two.
+    var agentStarts = 0
+    for await event in events {
+      if case .agentStart = event {
+        agentStarts += 1
+      }
+      if case .agentEnd = event {
+        break
+      }
+    }
+    #expect(agentStarts == 1)
   }
 
   @Test("LOOP-4: a .length stop fails all tool calls of that message, unexecuted")
