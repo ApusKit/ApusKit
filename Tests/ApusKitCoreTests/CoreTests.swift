@@ -84,7 +84,15 @@ struct UsageTests {
       cacheReadPerMillion: 0.3,
       cacheWritePerMillion: 3.75
     )
-    #expect(usage.cost(at: pricing) == 3 + 15 + 0.3 + 3.75)
+    // Hoisted into a typed constant rather than written inline. As
+    // `#expect(usage.cost(at: pricing) == 3 + 15 + 0.3 + 3.75)` the four
+    // untyped literals leave the type checker enumerating numeric overloads
+    // inside the macro expansion: Swift 6.3 copes, Swift 6.2 -- the version
+    // `Package.swift` declares and CI runs -- gives up with "unable to
+    // type-check this expression in reasonable time" and fails the build.
+    // One term per pricing component: input + output + cache read + cache write.
+    let expectedCost: Double = 3 + 15 + 0.3 + 3.75
+    #expect(usage.cost(at: pricing) == expectedCost)
 
     let zeroPricing = Pricing(inputPerMillion: 0, outputPerMillion: 0)
     #expect(usage.cost(at: zeroPricing) == 0)
