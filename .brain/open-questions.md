@@ -10,13 +10,18 @@ delete the question.
 - [ ] **No CI run has been observed yet.** The five workflows exist and the suite is green
       locally, but M0's gate stays un-flipped pending a link to a passing run (PROG-2). Until
       then, no claim about CI behaviour in this brain is verified — only about the workflow files.
-- [ ] **Does ApusKitWireFormat stay a separate target?** TRD §1 and PKG-6 give it its own layer
-      between Core and Providers, and ERR-1 carves out typed throws only inside it. M1 will show
-      whether the split earns its keep or the kernels belong in Providers.
-- [ ] **Which HTTP transport ships as the default at M1?** The `NIO` trait pulls
-      async-http-client, but the untraited default is presumably URLSession-backed. The seam
-      (`Sources/ApusKitProviders/StreamingHTTPTransport.swift`) is declared; no implementation
-      exists, and DI-3 forbids `URLSession.shared` inside logic.
+- [ ] **Does ApusKitWireFormat earn its own target?** It landed as a separate layer between Core
+      and Providers (`Package.swift`), carrying the WIRE-1 typed-throws carve-out. It holds only
+      two kernels today and imports nothing from `ApusKitCore`. The rest of M1 — the three API
+      implementations — will show whether the split earns its keep.
+- [ ] **Does the partial-JSON accumulator's `String` return shape survive contact with the API
+      implementations?** `snapshot()` returns repaired JSON text rather than a value type, because
+      `JSONValue` belongs to swift-json-schema and PKG-6 puts it out of WireFormat's reach. M1b
+      consumes it for the first time; if every caller immediately decodes, a typed shape may earn
+      its keep.
+- [ ] **Should the nightly fuzz workflow land with the SSE and partial-JSON kernels alone?**
+      `docs/ci-deferrals.md` names M1 as what gives the row a subject, but the row also covers the
+      JSONL codec, which is M2. Two of the three targets now exist.
 - [ ] **How are recorded pi SSE transcripts and pi v3 session files obtained and licensed?**
       TEST-3 requires them as fixtures with a conformance baseline; none exist yet.
 - [ ] **What does the M0 gate's CI evidence look like in practice** — which workflow run counts

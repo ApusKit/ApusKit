@@ -12,20 +12,23 @@ differ the code wins, and both get corrected.
   between a protocol seam.
 - The only stateful type is `Agent` (an actor). Everything else is a `Sendable` value type or a
   protocol.
-- Nothing reaches the network at M0. `ScriptedProvider` satisfies the provider protocol
-  deterministically and in memory, which is why the whole suite runs with no keys and no I/O.
+- `URLSessionTransport` is now a real network path, but no test reaches beyond `127.0.0.1`: the
+  suite still runs with no keys and no outbound I/O. `ScriptedProvider` satisfies the provider
+  protocol deterministically and in memory; the transport's own tests drive a loopback socket.
 - No vendor appears anywhere in the library. Providers arrive through `APIImplementation`, and
   HTTP through `StreamingHTTPTransport`, both injected by the consumer.
 
 ## Target graph
 
 ```
-ApusKitCore ← ApusKitProviders ┐
-ApusKitCore ← ApusKitTools     ├→ ApusKitAgent → ApusKit (umbrella, re-export only)
+ApusKitCore ← ApusKitWireFormat ← ApusKitProviders ┐
+ApusKitCore ← ApusKitTools                         ├→ ApusKitAgent → ApusKit (umbrella, re-export only)
 ```
 
 The full permitted DAG is PKG-6 in TRD §2. Two edges are hard constraints: no lower target ever
 imports `ApusKitAgent`, and `ApusKitAgent` never imports the (future) MCP or Workflows targets.
+`ApusKitWireFormat` sits strictly between Core and Providers and is the **only** target where
+typed `throws` is permitted (WIRE-1) — `SSEParser.feed` is `throws(SSEParseError)`.
 
 Each target ships as its own library product, so a consumer may take the provider layer alone and
 never touch the loop. `Examples/consumers` is the executable proof, one package per product.
@@ -78,16 +81,20 @@ major version.
 - No locks, semaphores or `DispatchQueue` — actors and `AsyncStream` only (CC-4).
 - No `Date()`, wall-clock `Task.sleep`, or `URLSession.shared` inside logic; clock and transport
   are injected (DI-3).
-- No force unwrap, `try!`, or IUO in production code (FORB-2) — swift-format enforces it.
+- No force unwrap, `try!`, or IUO in production code (FORB-2). swift-format's `NeverForceUnwrap`
+  catches **only postfix `!`** — it passes `try!` clean, so that half of FORB-2 has no automated
+  gate and is reviewer-enforced. Verified on swift-format 6.3.0: a file containing `try! f()`
+  lints clean and exits 0.
 - No AppKit/UIKit/ObjC-runtime import anywhere (FORB-3). There is no Linux CI, but nothing may be
   written that would block Linux.
 - Nothing from SwiftNIO or the MCP SDK on the public surface — both are fully wrapped (DEP-1).
 
 ## Not built yet
 
-Wire-format kernels (SSE, partial-JSON) and the real provider implementations are M1; the JSONL
-session tree is M2; the hook bus and AgentExtension are M3; MCP is M4; workflows are M5. TRD §8
-maps each to its milestone. Their absence is the plan, not drift.
+The real provider implementations (`anthropic-messages`, `openai-completions`,
+`openai-responses`), the provider catalog and typed tools are the rest of M1; the JSONL session
+tree is M2; the hook bus and AgentExtension are M3; MCP is M4; workflows are M5. TRD §8 maps each
+to its milestone. Their absence is the plan, not drift.
 
 ## Validation
 

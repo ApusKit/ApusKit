@@ -64,11 +64,13 @@ you, never evidence for the gate.
 Do: say "green locally" and leave the gate un-flipped until CI is observed.
 Avoid: marking a milestone ✅ from a local run.
 
-## Five CI gates are deliberately absent at M0
+## Five CI gates are deliberately absent
 
 Symptom: TRD §7 lists ten gate rows; `.github/workflows` holds five workflows.
 Evidence: `docs/ci-deferrals.md` names each missing row and the milestone that gives it a
-subject — Soundness, API breakage, traits matrix, nightly fuzz, nightly benchmarks.
+subject — Soundness, API breakage, traits matrix, nightly fuzz, nightly benchmarks. As of the M1
+wire-format slice, Benchmarks has a real subject (the two kernels) and is the next one due; Fuzz
+still waits for M2's JSONL codec, since that row fuzzes all three kernels together.
 Impact: an agent "fixing" the gap ships inert or always-skipped jobs that hide real failures
 later.
 Do: read `docs/ci-deferrals.md` before adding a workflow; add the row when its milestone lands.
@@ -103,3 +105,105 @@ change for consumers, and CC-3's Sendable audit is what makes it SemVer-visible.
 Do: annotate every public async API `@concurrent` (always off-caller) or `nonisolated(nonsending)`
 (runs on the caller's actor), and update `docs/sendable-audit.md` in the same change.
 Avoid: leaving isolation implicit on a public async declaration.
+
+## A `package` declaration needs `package import`, not `internal import`
+
+Symptom: adding a `package`-access helper whose signature mentions a type from another ApusKit
+target fails to build with `error: method cannot be declared package because its result uses an
+internal type` — even though the file compiled fine until that one declaration was added.
+Evidence: `Sources/ApusKitProviders/URLSessionTransport.swift:1` is `package import ApusKitCore`,
+not `internal import`. Downgrading it in a scratch copy fails at `URLSessionTransport.swift:77`
+(`mapNon2xxResponse` returns `StreamError?`).
+Impact: `AGENTS.md` says "use `internal import` for every non-API dependency (DEP-2)", and
+ACC-1/PKG-8 push cross-target internals onto `package` access — so the two rules collide the first
+time a `package` seam touches a dependency's type, and the error names the *declaration*, not the
+import, which sends you looking in the wrong file.
+Do: raise the import to `package import` for the module whose types appear in a `package`
+signature. An import's access level must be at least that of any declaration using it.
+Avoid: widening the helper to `public` (that leaks a test-only seam onto the public surface and
+into DocC) or demoting it to `internal` (it stops being reachable from the test target).
+
+## `.agentwork/` assumption IDs are not TRD rule codes — **Safeguard**
+
+Symptom: a production doc comment cites a rule code such as `ASM-3` that reads exactly like a real
+one (`CC-2`, `DI-3`, `WIRE-1`) but exists in no normative document, and ships as a dangling
+reference in the generated DocC.
+Evidence: commit `e4b319c` removed three such citations from
+`Sources/ApusKitProviders/URLSessionTransport.swift`; `cat TRD.md PRD.md AGENTS.md | grep -c 'ASM-'`
+prints `0`. The ID came from a per-run plan's assumption table in `.agentwork/`, quoted into a task
+brief and then copied into the code as if it were normative.
+Impact: `AGENTS.md` mandates citing a rule code for every judgment call, and nothing in CI
+validates that the cited code exists. A plan-local assumption number silently becomes a permanent,
+unresolvable citation in the public API documentation — and `ASM-n` is renumbered per run, so it
+does not even mean the same thing twice.
+Do: cite only codes that appear in `TRD.md`/`PRD.md`/`AGENTS.md`. Check before committing:
+`grep -oh '[A-Z]\{2,5\}-[0-9]\+' <files> | sort -u | while read c; do grep -q "$c" TRD.md PRD.md AGENTS.md || echo "BOGUS: $c"; done`
+Avoid: putting an `ASM-n` id into a task brief's notes at all — an implementer will cite it.
+
+## `JSONSerialization` is not a JSON well-formedness oracle
+
+Symptom: a round-trip check on the partial-JSON accumulator reports failures on inputs that are
+valid RFC 8259 — `"1e309"` and `"8e982"` fail with `NSCocoaErrorDomain Code=3840 "Number wound up
+as NaN"`, while `"-1e400"` decodes fine as `-inf`. It also rejects string content the naive rule
+"just don't end on a high surrogate" would accept: `"\udc00"`, `"\ud83dX"` and `"\ud83dA"` all
+fail with Code=3840.
+Evidence: `Sources/ApusKitWireFormat/PartialJSON.swift:239` — `safeStringBodyEnd` tracks a
+`pendingHighSurrogate` for exactly this; `:154` — `repairedNumberEnd` deliberately passes an
+over-range exponent through unchanged rather than corrupting a valid value.
+Impact: WIRE-2 makes these kernels the nightly fuzz targets. A harness using `JSONSerialization`
+as its "is this well-formed?" oracle reports false positives on valid over-range numbers, and — if
+it only checks the trailing byte — misses real surrogate defects.
+Do: treat `JSONSerialization` as *a* decoder, not *the* grammar. Exclude over-range exponents from
+the oracle explicitly, and test the full surrogate pairing rule.
+Avoid: "fixing" the accumulator to clamp `1e309` so the oracle goes green — that mutates a value
+the caller sent, which is a worse bug than the false alarm.
+
+## A loopback socket fixture needs `SO_NOSIGPIPE` and a time limit
+
+Symptom: two failure shapes from the same kind of test. (a) The whole `swift test` process dies
+with no failure report, because `send()` to a client that already hung up raises `SIGPIPE` on
+Darwin. (b) A regression makes the suite hang forever instead of failing, because the assertion
+under test is "a chunk arrives *before* the response ends" and a buffering implementation never
+delivers a first chunk at all.
+Evidence: `Tests/ApusKitProvidersTests/URLSessionTransportTests.swift:309` sets `SO_NOSIGPIPE` on
+the accepted socket; the same file carries `.timeLimit(.minutes(1))` on every socket-driven test.
+Impact: incremental delivery is only observable against a connection held open, and TEST-2 forbids
+URLProtocol stubbing — a real loopback socket is the sanctioned route, so both traps are
+load-bearing. Swift Testing's time-limit granularity is whole minutes, so a deliberate mutation run
+against such a test costs ~61s; that is expected, not a hang.
+Do: set `SO_NOSIGPIPE` on every accepted socket, and put `.timeLimit(.minutes(1))` on any test
+whose failure mode is "waits forever".
+Avoid: `HTTPStreamRequest(url:)` in a fixture aimed at a GET-only server — `method` defaults to
+`"POST"`, the server answers 501, and it surfaces as `StreamError(.provider, "...HTTP status 501")`,
+which reads like a status-mapping bug rather than a harness bug.
+
+## A new target leaves sibling consumer `.build` caches stale
+
+Symptom: after adding a target, the consumer loop fails on packages that do not even reference it
+— `error: no such module 'ApusKitWireFormat'` from `mainactor-consumer` and `umbrella-consumer`.
+Copying a checkout elsewhere gives the same class of failure with a different message:
+`error: precompiled file '.../ModuleCache/....pcm' was compiled with module cache path
+'/Users/.../ApusKit/.build/...', but the path is currently '...'`.
+Evidence: every consumer keeps its own `.build`, resolved against
+`.package(name: "ApusKit", path: "../../..")`.
+Impact: it reads as a real DAG or manifest defect and invites a hunt through `Package.swift` when
+the root package is fine.
+Do: `rm -rf Examples/consumers/*/.build` after adding or renaming a target, then re-run the
+consumer loop. Same after copying the repo anywhere.
+Avoid: concluding the umbrella re-export or the product wiring is broken before clearing the
+caches — CI never sees this, because it always starts from a fresh checkout.
+
+## `SSEParser` holds a trailing bare `CR` until the next chunk
+
+Symptom: `parser.feed(Array("data: hi\r\r".utf8))` returns `[]`. The event only appears on a later
+call — `parser.feed(Array("x".utf8))` then returns `[SSEEvent(data: "hi")]`. A single-`feed` test
+of a CR-terminated stream looks like the parser dropped the event.
+Evidence: `Sources/ApusKitWireFormat/SSEParser.swift:130` — `nextLineBounds` treats a `CR` in the
+last buffer position as an incomplete line and stashes `searchIndex`, because that byte may still
+turn out to be the first half of a `CRLF`.
+Impact: this is correct, not a bug — SSE allows LF, CRLF and bare CR, and only the next byte
+disambiguates. But a test that feeds one chunk ending in `CR` and asserts on the return value fails
+for the wrong reason, and sends you debugging the dispatch logic.
+Do: end a bare-CR fixture with a following byte, or call `feed` a second time, before asserting.
+Avoid: "fixing" the parser to dispatch on a trailing `CR` — that splits a `CRLF` straddling a chunk
+boundary into two terminators and injects a spurious blank line, dispatching an event early.

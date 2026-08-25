@@ -10,7 +10,7 @@ checkout. Toolchain: Swift 6.2+ required (`Package.swift` declares `swift-tools-
 
 ```bash
 swift build                     # must be warning-free; warnings are errors
-swift test                      # 50 tests / 13 suites at M0
+swift test                      # 94 tests / 17 suites
 swift package resolve
 ```
 
@@ -31,8 +31,8 @@ swift test                                              # Tests      (.github/wo
 swift test --sanitize=thread                            # TSan       (.github/workflows/tsan.yml)
 swift format lint --strict --recursive .                # Format     (.github/workflows/format.yml)
 swift package generate-documentation \
-  --target ApusKitCore --target ApusKitProviders --target ApusKitTools \
-  --target ApusKitAgent --target ApusKit \
+  --target ApusKitCore --target ApusKitWireFormat --target ApusKitProviders \
+  --target ApusKitTools --target ApusKitAgent --target ApusKit \
   --warnings-as-errors                                  # Docs       (.github/workflows/docs.yml)
 for d in Examples/consumers/*/; do swift build --package-path "$d"; done   # Consumers
 ```
@@ -48,7 +48,7 @@ swift format --in-place --recursive .
 
 ## Nightly / deferred
 
-Five of TRD §7's ten gate rows have no workflow at M0 — Soundness, API breakage, traits matrix,
+Five of TRD §7's ten gate rows still have no workflow — Soundness, API breakage, traits matrix,
 nightly fuzz, nightly benchmarks. `docs/ci-deferrals.md` records why and which milestone revives
 each. Do not add them early.
 

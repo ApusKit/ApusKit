@@ -46,13 +46,14 @@ before relying on it. When unsure whether a fact is durable, add it to
 - Stack: SwiftPM, `swift-tools-version: 6.2`, Swift 6 language mode. macOS 14+ / iOS 17+ /
   macCatalyst 17+ / tvOS 17+ / visionOS 1+.
 - Branch: `main` (single branch; no integration/production split).
-- Milestone: M0 in progress. `PRD.md` §5 is authoritative.
+- Milestone: M1 in progress — M0's work is complete but its gate is un-flipped, pending an
+  observed CI run (PROG-2). `PRD.md` §5 is authoritative.
 
 ## Validation quick links
 
 ```bash
 swift build
-swift test                                        # 50 tests / 13 suites at M0
+swift test                                        # 94 tests / 17 suites
 swift test --filter 'ContentBlockTests/textRoundTrips'    # symbol names, not @Test strings
 swift test --sanitize=thread
 swift format lint --strict --recursive .
