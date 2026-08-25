@@ -1,6 +1,6 @@
 # Sendable audit
 
-Every public type across ApusKit's five M0 targets (CC-3), and how it
+Every public type across ApusKit's targets (CC-3), and how it
 gets its `Sendable` conformance. "Explicit" means the declaration itself
 lists `Sendable`; "implicit" means it is `Sendable` without saying so —
 an `actor` (always `Sendable`), or a struct whose declaration conforms to
@@ -26,6 +26,16 @@ public type.
 | `Usage` | struct | explicit |
 | `Pricing` | struct | explicit |
 
+## ApusKitWireFormat
+
+| Type | Kind | Sendable |
+|---|---|---|
+| `SSEEvent` | struct | explicit |
+| `SSEParseError` | struct (`Error`) | explicit |
+| `SSEParseError.Code` | enum (`@nonexhaustive(warn)`) | explicit |
+| `SSEParser` | struct | explicit |
+| `PartialJSONAccumulator` | struct | explicit |
+
 ## ApusKitProviders
 
 | Type | Kind | Sendable |
@@ -43,6 +53,7 @@ public type.
 | `HTTPStreamRequest` | struct | explicit |
 | `HTTPStreamChunk` | struct | explicit |
 | `StreamingHTTPTransport` | protocol | explicit (protocol refines `Sendable`) |
+| `URLSessionTransport` | struct | implicit (conforms to `StreamingHTTPTransport: Sendable`; its only stored property, `URLSession`, is `Sendable`) |
 
 ## ApusKitTools
 
@@ -68,4 +79,4 @@ public type.
 
 The umbrella target declares no types of its own — `Exports.swift` is
 `@_exported public import` statements only (TRD §3.9), so it adds no
-rows beyond the four above.
+rows beyond the five above.

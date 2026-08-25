@@ -72,7 +72,7 @@ swift test --sanitize=thread                             # TSan gate
 swift format lint --strict --recursive .                 # Format gate
 swift format --in-place --recursive .                    # apply formatting
 swift package generate-documentation \
-  --target ApusKitCore --target ApusKitProviders --target ApusKitTools \
+  --target ApusKitCore --target ApusKitWireFormat --target ApusKitProviders --target ApusKitTools \
   --target ApusKitAgent --target ApusKit --warnings-as-errors   # Docs gate — MUST stay --target-scoped
 for d in Examples/consumers/*/; do swift build --package-path "$d"; done   # Consumer gate
 ```

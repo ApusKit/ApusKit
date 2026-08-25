@@ -59,6 +59,7 @@ jobs:
         run: |
           swift package generate-documentation \
             --target ApusKitCore \
+            --target ApusKitWireFormat \
             --target ApusKitProviders \
             --target ApusKitTools \
             --target ApusKitAgent \

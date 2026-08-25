@@ -22,6 +22,7 @@ let package = Package(
   ],
   products: [
     .library(name: "ApusKitCore", targets: ["ApusKitCore"]),
+    .library(name: "ApusKitWireFormat", targets: ["ApusKitWireFormat"]),
     .library(name: "ApusKitProviders", targets: ["ApusKitProviders"]),
     .library(name: "ApusKitTools", targets: ["ApusKitTools"]),
     .library(name: "ApusKitAgent", targets: ["ApusKitAgent"]),
@@ -41,9 +42,17 @@ let package = Package(
       swiftSettings: commonSwiftSettings
     ),
     .target(
-      name: "ApusKitProviders",
+      name: "ApusKitWireFormat",
       dependencies: [
         "ApusKitCore"
+      ],
+      swiftSettings: commonSwiftSettings
+    ),
+    .target(
+      name: "ApusKitProviders",
+      dependencies: [
+        "ApusKitCore",
+        "ApusKitWireFormat",
       ],
       swiftSettings: commonSwiftSettings
     ),
@@ -69,6 +78,7 @@ let package = Package(
       name: "ApusKit",
       dependencies: [
         "ApusKitCore",
+        "ApusKitWireFormat",
         "ApusKitProviders",
         "ApusKitTools",
         "ApusKitAgent",
@@ -91,6 +101,13 @@ let package = Package(
       dependencies: [
         "ApusKitCore",
         "TestSupport",
+      ],
+      swiftSettings: commonSwiftSettings
+    ),
+    .testTarget(
+      name: "ApusKitWireFormatTests",
+      dependencies: [
+        "ApusKitWireFormat"
       ],
       swiftSettings: commonSwiftSettings
     ),

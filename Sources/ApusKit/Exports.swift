@@ -10,3 +10,4 @@
 @_exported public import ApusKitCore
 @_exported public import ApusKitProviders
 @_exported public import ApusKitTools
+@_exported public import ApusKitWireFormat

@@ -14,14 +14,14 @@ never hardcodes a vendor.
 
 ## Status
 
-**Current status: 🔨 M0 in progress — package skeleton, core message/event types, `ScriptedProvider`, the agent loop and the five CI workflows landed with a green local `swift test` (2026-08-25); no CI run has been observed yet, so the M0 gate stays un-flipped pending a link to a passing CI run (PROG-2).**
+**Current status: 🔨 M1 in progress — M0's package skeleton, core message/event types, `ScriptedProvider` and agent loop are in place; M1 has landed its wire-format foundation (the `ApusKitWireFormat` target, the incremental SSE parser, the partial-JSON accumulator, and the default `URLSessionTransport`) with a green local `swift test` (2026-08-25); no CI run has been observed yet, so no gate is flipped pending a link to a passing CI run (PROG-2).**
 
 Legend: ⬜ planned · 🔨 in progress · ✅ done
 
 | Milestone | Status | Gate evidence |
 |---|---|---|
 | M0 Skeleton | 🔨 | — |
-| M1 Real streaming | ⬜ | — |
+| M1 Real streaming | 🔨 | — |
 | M2 Sessions | ⬜ | — |
 | M3 Public 0.1.0 | ⬜ | — |
 | M4 MCP | ⬜ | — |
