@@ -424,21 +424,24 @@ Swift Testing's summary (`Test run with N tests in M suites passed`) is mixed ac
 stderr, so grep the `2>&1` capture, not stdout alone.
 Avoid: `${PIPESTATUS[0]}` in any command here; if you must pipe, use `${pipestatus[1]}`.
 
-## `ToolCancellationSignal` is `Task.isCancelled` in a wrapper, not a stored flag
+## Tool cancellation is `Task.isCancelled` — there is no signal object
 
-Symptom: a tool that hands its `signal` to a detached task, or that suspends on a
-`CheckedContinuation` expecting cancellation to wake it, never observes an abort — while an
-otherwise identical tool polling `signal.isCancelled` in its own loop sees it immediately.
-Evidence: `Sources/ApusKitTools/ToolSupport.swift:12-14` — `isCancelled` is literally
-`{ Task.isCancelled }`, evaluated against whichever task reads it. The F2.4 fake that does observe
-cancellation polls cooperatively (`CancellationObservingTool` in `Tests/Shared/TestSupport.swift`),
-driven by `Tests/ApusKitAgentTests/AgentTests.swift:496`.
-Impact: the value carries no state of its own, so passing it across a task boundary reads the wrong
-task's cancellation. `abort()` cancels the enclosing task (LOOP-6); it does not resume a suspended
+Symptom: a tool that suspends on a `CheckedContinuation` expecting cancellation to wake it never
+observes an abort, while an otherwise identical tool polling `Task.isCancelled` in its own loop sees
+it immediately.
+Evidence: `Sources/ApusKitTools/Tool.swift` — `execute` takes no cancellation parameter (`TOOL-4`).
+Until commit `9b8e51d` it took a `ToolCancellationSignal`, a struct whose entire body was
+`var isCancelled: Bool { Task.isCancelled }` — zero stored state, so it reported the *reading*
+task's cancellation rather than the tool's, and handing it to another task read the wrong one. It
+was a JS `AbortSignal` transliterated into the one language that makes it unnecessary. The F2.4
+fake that does observe cancellation polls cooperatively (`CancellationObservingTool` in
+`Tests/Shared/TestSupport.swift`).
+Impact: `abort()` cancels the task running `execute` (LOOP-6); it does not resume a suspended
 continuation, so a tool awaiting one hangs until its `.timeLimit` fires.
-Do: poll `signal.isCancelled` on the task running `execute`, between units of work, and return a
-partial `ToolResult`. Wrap any real suspension in `withTaskCancellationHandler`.
-Avoid: `Task.detached { signal.isCancelled }`, and treating the signal as a latch you can await.
+Do: poll `Task.isCancelled` between units of work and return a partial `ToolResult`. Wrap any real
+suspension in `withTaskCancellationHandler`.
+Avoid: reaching for a token/handle type when Swift already carries cancellation in the task — and
+reading cancellation from a task other than the one running the work.
 
 ## `headTruncate`'s two caps are on different axes — step by `linesReturned`, not `limit`
 
@@ -508,3 +511,42 @@ comparison is plain equality.
 Avoid: reading "test targets only" in PKG-5, or a green build, as evidence that a dependency is
 appropriate. Note `swift-syntax` is NOT removable this way — `swift-json-schema`'s `@Schemable`
 macro plugin needs it regardless.
+
+## An `AsyncStream` handed out as a stored property is usually three bugs — **Safeguard**
+
+Symptom: `for await event in agent.events` never returns; a headless run's memory grows with every
+event; and a second observer silently steals events from the first.
+Evidence: `Agent` exposed `public let events: AsyncStream<AgentEvent>` built by
+`AsyncStream.makeStream()` — whose buffering policy defaults to **`.unbounded`** — with no
+`finish()` anywhere in the target. All three defects shipped in M0 and survived M1 because every
+test that touched `events` `break`s on its first matching event, so none ever observed termination,
+a second subscriber, or buffer growth. Fixed in `9b8e51d`:
+`makeEventStream(bufferingPolicy:)` hands each observer its own bounded stream, terminated
+subscribers are pruned on yield (`Continuation.yield` returns `.terminated`, so no `onTermination`
+callback needs to hop back onto the actor), and `deinit` finishes every continuation. Rules
+EVENT-1..3.
+Impact: each defect is invisible to the obvious test. A `break`-on-first-match loop passes against a
+stream that never finishes, is unbounded, and serves one consumer.
+Do: hand out a stream per subscriber from a factory, bound it by default, and finish every
+continuation on the owner's `deinit`. Decide the lifetime explicitly and document it — ApusKit's
+spans the *agent*, not one `run(_:)`, because `run(_:)` may be called again.
+Avoid: `AsyncStream.makeStream()` without a buffering policy on anything long-lived; a stored
+`AsyncStream` property as an observation surface; and testing an event stream only with a loop that
+breaks early.
+
+## A tool's failure is `ToolResult.isError`, never a `details` entry
+
+Symptom: a successful tool whose `details` happen to carry an `"error"` key is reported to the model
+as a failure; a tool that sets a failure flag with empty `details` is reported as a success.
+Evidence: `Sources/ApusKitAgent/RunLoop.swift` derived the flag as `result.details["error"] != nil`
+until commit `9b8e51d`, while `ToolResultMessage` in Core had carried a real `isError` all along.
+`ToolResult` now has its own `isError`, and TOOL-2 states that nothing in the loop keys behaviour
+off a `details` entry.
+Impact: stringly-typed control flow across a module boundary, on the public surface. It also made
+`AnyAgentTool.truncatingOutput` dangerous — it rebuilds the result, so it silently dropped the flag
+until a test pinned it.
+Do: set `isError` explicitly; treat `details` as descriptive metadata only. When a helper rebuilds a
+`ToolResult`, carry every field through.
+Avoid: probing a `[String: JSONValue]` bag for a magic key to make a control-flow decision, and
+testing such a rule only at the type that produces it — the loop-level behaviour needs its own test,
+which is what a first attempt here missed.

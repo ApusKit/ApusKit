@@ -85,7 +85,7 @@ Promote it to `Tests/Shared` the second time someone needs it.
 | `ThrowingTool` | struct | TOOL-2 — a thrown error becoming an error result |
 | `ConcurrencyProbe` / `ConcurrencyProbeTool` | actor / struct | LOOP-7 — proving tool calls overlap |
 | `FollowUpGate` / `GateTool` | actor / struct | LOOP-1 — holding a turn open while a message is queued |
-| `CancellationObservation` / `CancellationObservingTool` | actor / struct | F2.4 — a tool that reports one `onUpdate`, opens a `FollowUpGate`, then polls `ToolCancellationSignal` until it observes an abort |
+| `CancellationObservation` / `CancellationObservingTool` | actor / struct | F2.4 — a tool that reports one `onUpdate`, opens a `FollowUpGate`, then polls `Task.isCancelled` until it observes an abort |
 | `HangingProvider` | struct | abort/cancellation paths |
 | `RequestRecordingProvider` / `RequestLog` | struct / actor | asserting what the loop sent upstream |
 | `ThrowingStreamProvider` | struct | LOOP-3 — stream failure ending as `.error` |
@@ -100,7 +100,7 @@ an app consumer. See `Examples/consumers/mainactor-consumer/Package.swift`.
 
 ## Validation
 
-`swift test` (165 tests / 28 suites as of 2026-08-25). For one test see `commands.md` — the filter syntax has
+`swift test` (178 tests / 30 suites as of 2026-08-25). For one test see `commands.md` — the filter syntax has
 a trap.
 
 ## Open questions

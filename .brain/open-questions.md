@@ -21,3 +21,8 @@ delete the question.
       `Tests/Fixtures/conformance-baseline.yml`. Swapping in real recordings later is a data change,
       not a code change. M2's session codec still needs fixtures with a known provenance, and TEST-3
       names pi v3 session files specifically.
+- [ ] **Should PKG-2 keep declaring `.tvOS(.v17)` and `.visionOS(.v1)`?** Neither has a plausible
+      consumer for a coding-agent harness, and every declared platform is a support obligation and
+      an availability constraint. Raised by the M1 TRD audit and deliberately left unchanged: cutting
+      them removes reach, so it is a product decision rather than a defect. `.macOS`/`.iOS`/
+      `.macCatalyst` are the ones with a real story today.
