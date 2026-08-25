@@ -35,6 +35,10 @@ public type.
 | `SSEParseError.Code` | enum (`@nonexhaustive(warn)`) | explicit |
 | `SSEParser` | struct | explicit |
 | `PartialJSONAccumulator` | struct | explicit |
+| `JSONLDecodeError` | struct (`Error`) | explicit |
+| `JSONLDecodeError.Code` | enum (`@nonexhaustive(warn)`) | explicit |
+| `JSONLDecodeResult` | struct | explicit |
+| `JSONLCodec` | enum (no cases — static namespace) | implicit (a case-less enum has nothing to check, so `Sendable` derives with no stored state to require it) |
 
 ## ApusKitProviders
 
@@ -72,6 +76,40 @@ public type.
 | `ToolUpdate` | struct | explicit |
 | `TruncatedText` | struct | explicit |
 
+## ApusKitSessions
+
+| Type | Kind | Sendable |
+|---|---|---|
+| `EntryIDError` | struct (`Error`) | explicit |
+| `EntryIDError.Code` | enum (`@nonexhaustive(warn)`) | explicit |
+| `EntryID` | struct | explicit (also `Hashable`, `Codable`) |
+| `SessionHeader` | struct | explicit (also `Codable`, `Equatable`) |
+| `SessionMessage` | enum (`@nonexhaustive(warn)`) | explicit (also `Codable`, `Equatable`) |
+| `SessionEntryKind` | enum (`@nonexhaustive(warn)`) | explicit (also `Codable`, `Equatable`) |
+| `SessionEntry` | struct | explicit (also `Codable`, `Equatable`) |
+| `SessionFileDecodeError` | struct (`Error`) | explicit |
+| `SessionFileDecodeError.Code` | enum (`@nonexhaustive(warn)`) | explicit |
+| `SessionFileDecodeResult` | struct | explicit |
+| `SessionFileCodec` | enum (no cases — static namespace) | implicit (a case-less enum has nothing to check, so `Sendable` derives with no stored state to require it) |
+| `SessionTreeError` | struct (`Error`) | explicit |
+| `SessionTreeError.Code` | enum (`@nonexhaustive(warn)`) | explicit |
+| `Session` | struct | explicit |
+| `ContextItem` | enum | explicit |
+| `CompactionError` | struct (`Error`) | explicit |
+| `CompactionError.Code` | enum (`@nonexhaustive(warn)`) | explicit |
+| `CompactionSummary` | struct | explicit |
+| `Compaction` | enum (no cases — static namespace) | implicit (a case-less enum has nothing to check, so `Sendable` derives with no stored state to require it) |
+| `Compaction.CutPoint` | struct | explicit |
+| `SessionStoreError` | struct (`Error`) | explicit |
+| `SessionStoreError.Code` | enum (`@nonexhaustive(warn)`) | explicit |
+| `SessionStore` | protocol | explicit (protocol refines `Sendable`) |
+| `JSONLFileSessionStore` | struct | implicit (conforms to `SessionStore: Sendable`; its only stored property, `directoryURL: URL`, is `Sendable`) |
+
+`CompactionSummarizer` (a `public typealias` for a `@Sendable` closure
+type) is not a nominal type and so has no row of its own — the
+`@Sendable` that makes it safe to pass to `Compaction.compact` is
+already spelled in the alias itself.
+
 ## ApusKitAgent
 
 | Type | Kind | Sendable |
@@ -85,4 +123,4 @@ public type.
 
 The umbrella target declares no types of its own — `Exports.swift` is
 `@_exported public import` statements only (TRD §3.9), so it adds no
-rows beyond the five above.
+rows beyond the six above.

@@ -20,3 +20,22 @@ provenance: authored-from-vendor-docs
 
 # Known, deliberate divergences from the vendor documentation. Informational.
 deviations: []
+
+# --- ApusKitSessions (SESS-1) --------------------------------------------
+#
+# TEST-3 also names "pi v3 session files" among the fixtures conformance
+# suites replay. No real, licensed pi v3 session file exists in this repo,
+# so `Tests/Fixtures/sessions/pi-v3-session.jsonl` is authored from pi's
+# PUBLIC v3 session-file format (§3.5: 8-hex EntryID ids/parentIds, the
+# eight named entry kinds) together with this target's own
+# SessionEntry/SessionFileCodec — fixture and codec were authored
+# together, not recorded from a real pi installation. The
+# SessionConformanceTests suite (Tests/ApusKitSessionsTests/) proves the
+# fixture is SELF-CONSISTENT with the codec it was authored alongside — it
+# decodes, rebuilds context, and round-trips losslessly — not that it is
+# byte-compatible with real pi output. SESS-1 stays open, and this section
+# must not be read as closing it, until a real pi v3 file can be
+# substituted for this authored one.
+sessions:
+  provenance: authored-from-pi-source
+  deviations: []

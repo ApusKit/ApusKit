@@ -6,9 +6,10 @@ public import Foundation
 /// supplies.
 ///
 /// File paths always come in as parameters — nothing is hardcoded (`DI-1`).
-/// Every requirement is `@concurrent` (inherited from ``SessionStore``),
-/// so this store's synchronous `FileManager`/`Data` calls run off whatever
-/// actor called them rather than blocking one (`CC-4`).
+/// Every witness repeats ``SessionStore``'s `@concurrent` annotation
+/// explicitly (`CC-2`), so this store's synchronous `FileManager`/`Data`
+/// calls run off whatever actor called them rather than blocking one
+/// (`CC-4`).
 public struct JSONLFileSessionStore: SessionStore {
   /// The directory this store reads and writes session files in.
   public let directoryURL: URL
@@ -26,6 +27,7 @@ public struct JSONLFileSessionStore: SessionStore {
   }
 
   /// Writes `header`'s session file with no entries.
+  @concurrent
   public func createSession(header: SessionHeader) async throws {
     let url = fileURL(for: header.sessionID)
     guard !FileManager.default.fileExists(atPath: url.path) else {
@@ -44,6 +46,7 @@ public struct JSONLFileSessionStore: SessionStore {
   /// If the existing file does not already end on a line terminator, one
   /// is written before the entry, so appending to a file another writer
   /// left unterminated still yields a readable session.
+  @concurrent
   public func appendEntry(_ entry: SessionEntry, toSessionID sessionID: EntryID) async throws {
     let url = fileURL(for: sessionID)
     guard FileManager.default.fileExists(atPath: url.path) else {
@@ -77,6 +80,7 @@ public struct JSONLFileSessionStore: SessionStore {
   }
 
   /// Reads and decodes the session file for `sessionID`.
+  @concurrent
   public func loadSession(sessionID: EntryID) async throws -> SessionFileDecodeResult {
     let url = fileURL(for: sessionID)
     guard let data = FileManager.default.contents(atPath: url.path) else {
@@ -89,6 +93,7 @@ public struct JSONLFileSessionStore: SessionStore {
   }
 
   /// Lists the session ids present in `directoryURL`, sorted by hex string.
+  @concurrent
   public func listSessionIDs() async throws -> [EntryID] {
     guard FileManager.default.fileExists(atPath: directoryURL.path) else {
       return []

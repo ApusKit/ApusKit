@@ -11,7 +11,7 @@ workflow once the milestone that gives it a subject lands.
 | Soundness (`swiftlang/github-workflows` reusable: license headers, format, DocC `--analyze`) | The reusable workflow duplicates checks this milestone's own `Format`/`Docs` jobs already run standalone; wiring the shared reusable workflow is a governance step, not an M0 build-shape concern. | M3 Public 0.1.0 (governance files land alongside the reusable-workflow adoption) |
 | API breakage (`swift package diagnose-api-breaking-changes` vs PR base) | There is no prior tagged/released API to diff against — M0 is the first commit establishing the public surface. | M3 Public 0.1.0 (first tagged 0.1.0 gives the tool a base to diff against) |
 | Traits matrix (build with no traits / `NIO` / `MCP` / both) | `NIO` and `MCP` traits are declared in `Package.swift` (PKG law) but inert: no source file is conditionalized on either trait yet, so every leg of the matrix would build the identical, trait-blind M0 tree — nothing to vary. | M1 Real streaming (`NIO`, via `AsyncHTTPClientTransport`) and M4 MCP (`MCP` trait) |
-| Fuzz (nightly): libFuzzer+ASan on SSE + JSONL + partial-JSON kernels | Two of the three kernels now exist — `SSEParser` and `PartialJSONAccumulator` landed as part of M1's wire-format slice — but this row fuzzes all three together, and the JSONL codec is M2 Sessions scope. Still no complete subject to fuzz. | M2 Sessions (the JSONL codec completes the trio) |
+| Fuzz (nightly): libFuzzer+ASan on SSE + JSONL + partial-JSON kernels | All three kernels this row fuzzes now exist — `SSEParser` and `PartialJSONAccumulator` landed in M1's wire-format slice, and `JSONLCodec` (`ApusKitWireFormat/JSONLCodec.swift`) landed in M2 Sessions, completing the trio. The row has its subject; only the workflow itself (`.github/workflows/fuzz.yml`) remains to be wired up. | M2 Sessions (delivered the JSONL codec; the workflow is the only thing left) |
 | Benchmarks (nightly): `package-benchmark` run, trend recorded | `SSEParser` and `PartialJSONAccumulator` (landed in M1) are now real, non-trivial parsing hot paths — a first subject worth trending — but the `Benchmarks` target and the `package-benchmark` dependency (PKG-5) aren't wired up yet. | M1 Real streaming (wire the `Benchmarks` target to the kernels that already exist) |
 
 ## Why the Docs gate is `--target`-scoped
@@ -62,8 +62,11 @@ Measured, not assumed:
   the only lever.
 
 The gate therefore passes one `--target` per ApusKit target — the same
-five as `.spi.yml`'s `documentation_targets` — which is what DOC-1
-("DocC per target") asks for, and which is clean (exit 0, five archives).
+seven as `.spi.yml`'s `documentation_targets` (`ApusKitCore`,
+`ApusKitWireFormat`, `ApusKitProviders`, `ApusKitTools`,
+`ApusKitSessions`, `ApusKitAgent`, `ApusKit`) — which is what DOC-1
+("DocC per target") asks for, and which is clean (exit 0, seven
+archives).
 Scoping is also the more correct gate on its own merits: it measures
 ApusKit's documentation rather than its dependencies'. Revisit only if a
 future dependency-exclusion flag makes the unscoped form measure the same

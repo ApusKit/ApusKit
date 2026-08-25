@@ -1,0 +1,19 @@
+{"sessionId":"c0ffee00","version":3}
+{"kind":{"message":{"_0":{"user":{"_0":{"content":[{"text":{"_0":"What's the weather in Paris today?"}}]}}}}},"id":"00000001"}
+{"parentId":"00000001","id":"00000002","kind":{"label":{"name":"turn-1"}}}
+{"parentId":"00000002","id":"00000003","kind":{"message":{"_0":{"assistant":{"_0":{"stopReason":{"toolUse":{}},"content":[{"toolCall":{"id":"call_1","name":"get_weather","argumentsJSON":"{\"city\":\"Paris\"}"}}],"usage":{"inputTokens":120,"cacheWriteTokens":0,"outputTokens":18,"cacheReadTokens":0}}}}}}}
+{"parentId":"00000003","id":"00000004","kind":{"message":{"_0":{"toolResult":{"_0":{"toolCallID":"call_1","content":[{"text":{"_0":"15°C, partly cloudy"}}],"isError":false}}}}}}
+{"parentId":"00000004","id":"00000005","kind":{"modelChange":{"model":"claude-opus-5"}}}
+{"parentId":"00000005","id":"00000006","kind":{"message":{"_0":{"assistant":{"_0":{"stopReason":{"endTurn":{}},"content":[{"text":{"_0":"It's 15°C and partly cloudy in Paris."}}],"usage":{"inputTokens":140,"cacheWriteTokens":0,"outputTokens":12,"cacheReadTokens":0}}}}}}}
+{"parentId":"00000006","id":"00000007","kind":{"thinkingLevelChange":{"level":"high"}}}
+{"parentId":"00000007","id":"00000008","kind":{"message":{"_0":{"user":{"_0":{"content":[{"text":{"_0":"Now check London too, and remember this for later."}}]}}}}}}
+{"parentId":"00000008","id":"00000009","kind":{"custom":{"kind":"workflow.step","payloadJSON":"{\"step\":\"scheduled-followup\"}"}}}
+{"parentId":"00000009","id":"0000000a","kind":{"message":{"_0":{"assistant":{"_0":{"stopReason":{"toolUse":{}},"content":[{"thinking":{"_0":"Need to call get_weather for London"}},{"toolCall":{"id":"call_2","name":"get_weather","argumentsJSON":"{\"city\":\"London\"}"}}],"usage":{"inputTokens":160,"cacheWriteTokens":0,"outputTokens":22,"cacheReadTokens":0}}}}}}}
+{"parentId":"0000000a","id":"0000000b","kind":{"message":{"_0":{"toolResult":{"_0":{"toolCallID":"call_2","content":[{"text":{"_0":"12°C, rain"}}],"isError":false}}}}}}
+{"parentId":"0000000b","id":"0000000c","kind":{"customMessage":{"kind":"system-note","payloadJSON":"{\"note\":\"reminder scheduled\"}"}}}
+{"parentId":"0000000c","id":"0000000d","kind":{"compaction":{"summary":"earlier turns covering Paris and London weather were summarized","retainedTail":[{"assistant":{"_0":{"stopReason":{"endTurn":{}},"content":[{"text":{"_0":"London is 12°C with rain."}}],"usage":{"inputTokens":150,"cacheWriteTokens":0,"outputTokens":10,"cacheReadTokens":0}}}}],"replacedThrough":"0000000c"}}}
+{"parentId":"0000000d","id":"0000000e","kind":{"message":{"_0":{"assistant":{"_0":{"stopReason":{"endTurn":{}},"content":[{"text":{"_0":"Got it, I'll keep that in mind."}}],"usage":{"inputTokens":200,"cacheWriteTokens":0,"outputTokens":9,"cacheReadTokens":0}}}}}}}
+{"parentId":"00000008","id":"0000000f","kind":{"branchSummary":{"summary":"explored a shorter reply without scheduling a followup"}}}
+{"parentId":"0000000f","id":"00000010","kind":{"message":{"_0":{"assistant":{"_0":{"stopReason":{"endTurn":{}},"content":[{"text":{"_0":"Sure — just let me check the weather for London."}}],"usage":{"inputTokens":130,"cacheWriteTokens":0,"outputTokens":14,"cacheReadTokens":0}}}}}}}
+{"parentId":"0000000e","id":"00000011","kind":{"message":{"_0":{"assistant":{"_0":{"stopReason":{"endTurn":{}},"content":[{"text":{"_0":"Anything else I can help with?"}}],"usage":{"inputTokens":210,"cacheWriteTokens":0,"outputTokens":8,"cacheReadTokens":0}}}}}}}
+{"parentId":"0000000e","id":"00000012","kind":{"message":{"_0":{"assistant":{"_0":{"stopReason":{"endTurn":{}},"content":[{"text":{"_0":"Let me know if you need more cities."}}],"usage":{"inputTokens":210,"cacheWriteTokens":0,"outputTokens":9,"cacheReadTokens":0}}}}}}}
