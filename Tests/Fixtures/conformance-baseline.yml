@@ -1,0 +1,14 @@
+# Wire-compat conformance baseline (TRD TEST-3).
+#
+# Every recorded transcript under Tests/Fixtures/ is replayed against its
+# APIImplementation. A fixture failure that is NOT listed here fails CI.
+# This file is the ONLY place a known deviation may be recorded.
+
+# Provenance of the transcripts themselves. TEST-3 names "recorded pi SSE
+# transcripts"; none could be obtained under a settled licence, so the
+# transcripts here are authored from each vendor's public streaming
+# documentation to the same event shapes. Swapping in real recorded
+# transcripts later is a data change, not a code change.
+provenance: authored-from-vendor-docs
+
+deviations: []

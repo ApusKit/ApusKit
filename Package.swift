@@ -35,6 +35,7 @@ let package = Package(
   dependencies: [
     .package(url: "https://github.com/ajevans99/swift-json-schema", exact: "0.9.1"),
     .package(url: "https://github.com/swiftlang/swift-docc-plugin", from: "1.5.0"),
+    .package(url: "https://github.com/pointfreeco/swift-snapshot-testing", from: "1.19.4"),
   ],
   targets: [
     .target(
@@ -116,6 +117,7 @@ let package = Package(
       dependencies: [
         "ApusKitProviders",
         "TestSupport",
+        .product(name: "InlineSnapshotTesting", package: "swift-snapshot-testing"),
       ],
       swiftSettings: commonSwiftSettings
     ),
@@ -132,6 +134,7 @@ let package = Package(
       dependencies: [
         "ApusKitAgent",
         "TestSupport",
+        .product(name: "InlineSnapshotTesting", package: "swift-snapshot-testing"),
       ],
       swiftSettings: commonSwiftSettings
     ),
