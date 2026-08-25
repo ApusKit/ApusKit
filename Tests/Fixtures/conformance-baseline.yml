@@ -38,4 +38,45 @@ deviations: []
 # substituted for this authored one.
 sessions:
   provenance: authored-from-pi-source
-  deviations: []
+
+  # Known, deliberate divergences from pi's public v3 format.
+  #
+  # Nothing reads this YAML (see the header above), but unlike the vendor
+  # `deviations` list this record is PINNED: the SessionConformanceTests
+  # test `fixtureCarriesTheDocumentedSwiftSynthesizedEntryTags` asserts the
+  # exact discriminators the fixture carries on disk, so the divergence
+  # described below cannot change without failing the Tests gate and
+  # forcing this record to be revisited. Per TEST-3, a `deviations` list
+  # nothing enforces would read like a waiver; this one states a known GAP,
+  # and grants nothing.
+  deviations:
+    - what: >
+        Entry-kind discriminators are Swift's synthesized Codable tags: an
+        enclosing `"kind"` object keyed by the CAMEL-CASE Swift case name
+        (`message, compaction, branchSummary, custom, customMessage, label,
+        modelChange, thinkingLevelChange`), carrying positional payloads
+        under `_0`. TRD.md §3.5 names the entry types normatively as
+        `message, compaction, branch_summary, custom, custom_message, label,
+        model_change, thinking_level_change`; four of the eight therefore do
+        not match on the wire, and the `_0` positional keys have no
+        counterpart in pi's format at all.
+      why: >
+        Sources/ApusKitSessions/SessionEntry.swift declares SessionEntryKind
+        (and SessionMessage) as plain `Codable` enums with no CodingKeys, so
+        the wire tags are whatever the compiler synthesizes from the Swift
+        case names. Cases are named per API-2 for the Swift surface; nothing
+        maps them back to §3.5's names when encoding. The fixture was
+        authored against that codec and so carries the synthesized shape.
+      impact: >
+        A real pi v3 session file will NOT decode with this codec, and this
+        codec's output will NOT load in pi. SESS-1's wire-compat guarantee is
+        unproven: the conformance suite proves self-consistency (decode,
+        rebuild, round-trip) with the codec the fixture was authored beside,
+        and nothing more. This is a second, independent reason SESS-1 stays
+        open, alongside the missing real licensed pi file.
+      closing-it-requires: >
+        Explicit CodingKeys (or custom encode(to:)/init(from:)) on
+        SessionEntryKind and SessionMessage mapping to §3.5's snake_case
+        names with named rather than positional payload keys, and a real
+        licensed pi v3 session file substituted for this authored one. Both
+        are out of scope for M2 and neither is a fixture-only change.

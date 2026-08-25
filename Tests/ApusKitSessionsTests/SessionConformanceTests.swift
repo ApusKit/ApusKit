@@ -15,6 +15,15 @@
 // predict, and round-trips through it losslessly), not byte-compatibility
 // with a real pi installation. SESS-1 stays open until a real pi v3 file
 // can be substituted for this authored one.
+//
+// The fixture also diverges from pi's v3 format on the wire, not only in
+// provenance: SessionEntryKind has no CodingKeys, so entry kinds are
+// tagged with Swift's synthesized camel-case case names and positional
+// `_0` payloads rather than §3.5's `branch_summary, custom_message,
+// model_change, thinking_level_change`. That divergence is recorded under
+// `sessions.deviations` in conformance-baseline.yml (SESS-1: "deviations
+// only via conformance-baseline.yml") and pinned below by
+// `fixtureCarriesTheDocumentedSwiftSynthesizedEntryTags`.
 
 import ApusKitCore
 import ApusKitSessions
@@ -304,6 +313,50 @@ struct SessionConformanceTests {
     #expect(seenLabel)
     #expect(seenModelChange)
     #expect(seenThinkingLevelChange)
+  }
+
+  /// Pins the entry-kind discriminators the fixture actually carries on
+  /// disk.
+  ///
+  /// This is the enforcement for the deviation recorded under
+  /// `sessions.deviations` in `Tests/Fixtures/conformance-baseline.yml`:
+  /// `SessionEntryKind` declares no `CodingKeys`, so its wire tags are
+  /// Swift's synthesized camel-case case names with positional `_0`
+  /// payloads, NOT `§3.5`'s normative `branch_summary, custom_message,
+  /// model_change, thinking_level_change`. `TEST-3` warns that a
+  /// `deviations` list nothing reads would be worse than none because it
+  /// reads like a waiver — this test is what makes that record a fact
+  /// instead, and what fails the moment the encoding changes without the
+  /// record changing with it.
+  @Test("the fixture carries the documented Swift-synthesized entry tags, not §3.5's names")
+  func fixtureCarriesTheDocumentedSwiftSynthesizedEntryTags() throws {
+    let text = String(decoding: try Self.fixtureBytes(), as: UTF8.self)
+    let lines = text.split(separator: "\n")
+    // The first line is the header; the rest are entries.
+    let entryLines = lines.dropFirst()
+    #expect(entryLines.count == (try Self.referenceEntries().count))
+
+    var tags: Set<String> = []
+    for line in entryLines {
+      let parsed = try JSONSerialization.jsonObject(with: Data(line.utf8))
+      let object = try #require(parsed as? [String: Any])
+      let kind = try #require(object["kind"] as? [String: Any])
+      #expect(kind.count == 1)
+      tags.formUnion(kind.keys)
+    }
+
+    #expect(
+      tags == [
+        "message", "compaction", "branchSummary", "custom", "customMessage", "label",
+        "modelChange", "thinkingLevelChange",
+      ])
+    // The other half of the deviation: positional payload keys, which
+    // pi's format has no counterpart for.
+    #expect(text.contains(#""_0""#))
+    // None of §3.5's normative snake_case names appear anywhere.
+    for normative in ["branch_summary", "custom_message", "model_change", "thinking_level_change"] {
+      #expect(!text.contains(normative))
+    }
   }
 
   @Test(

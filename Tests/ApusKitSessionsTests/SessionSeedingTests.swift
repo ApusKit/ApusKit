@@ -5,9 +5,14 @@
 // session file — must build the same tree structure `append(_:)` would,
 // one call at a time. Every assertion here fails if the seeding loop in
 // `init(header:entries:)` is replaced with a no-op or a partial copy.
+//
+// R9's second half — every public async witness in `JSONLFileSessionStore`
+// repeating the isolation annotation of the `SessionStore` requirement it
+// satisfies (`CC-2`) — is pinned at the bottom of this file.
 
 import ApusKitCore
 import ApusKitSessions
+import Foundation
 import Testing
 
 private func id(_ hex: String) throws -> EntryID {
@@ -71,5 +76,100 @@ struct SessionSeedingTests {
     let path = try session.history(from: leaf.id)
     #expect(path == [leaf, mid, root])
     #expect(path.last?.parentID == nil)
+  }
+}
+
+// MARK: - Witness isolation annotations
+
+/// One `async` function declaration found in a source file, with the
+/// attribute written immediately above it, if any.
+private struct AsyncDeclaration: Equatable {
+  /// The declaration's base name, e.g. `"loadSession"`.
+  var name: String
+
+  /// The attribute on the line above the declaration — `"@concurrent"`,
+  /// `"nonisolated(nonsending)"` — or `nil` if there is none.
+  var isolation: String?
+}
+
+/// Scans a file in `Sources/ApusKitSessions/` for `async` declarations
+/// and the isolation attribute each one carries.
+///
+/// `CC-2` is a source-level contract: with
+/// `NonisolatedNonsendingByDefault` off, dropping `@concurrent` from a
+/// witness changes no runtime behaviour that a test could observe, so the
+/// annotation is checked where it lives — in the text of the declaration.
+private func asyncDeclarations(inSessionsFileNamed fileName: String) throws -> [AsyncDeclaration] {
+  let url =
+    URL(fileURLWithPath: #filePath)
+    .deletingLastPathComponent()  // Tests/ApusKitSessionsTests
+    .deletingLastPathComponent()  // Tests
+    .deletingLastPathComponent()  // repository root
+    .appendingPathComponent("Sources", isDirectory: true)
+    .appendingPathComponent("ApusKitSessions", isDirectory: true)
+    .appendingPathComponent(fileName)
+  let lines = try String(contentsOf: url, encoding: .utf8).split(
+    separator: "\n",
+    omittingEmptySubsequences: false
+  )
+
+  return lines.enumerated().compactMap { index, line -> AsyncDeclaration? in
+    let trimmed = line.trimmingCharacters(in: .whitespaces)
+    guard trimmed.hasPrefix("func ") || trimmed.hasPrefix("public func ") else { return nil }
+    guard trimmed.contains(" async "), let parenthesis = trimmed.firstIndex(of: "(") else {
+      return nil
+    }
+    guard let funcKeyword = trimmed.range(of: "func ") else { return nil }
+    let name = String(trimmed[funcKeyword.upperBound..<parenthesis])
+
+    // Walk back over the doc comment to the attribute, if one is written.
+    var above = index - 1
+    while above >= 0 {
+      let candidate = lines[above].trimmingCharacters(in: .whitespaces)
+      if candidate.isEmpty || candidate.hasPrefix("//") {
+        above -= 1
+        continue
+      }
+      return AsyncDeclaration(
+        name: name,
+        isolation: candidate.hasPrefix("@") || candidate.hasPrefix("nonisolated")
+          ? candidate : nil
+      )
+    }
+    return AsyncDeclaration(name: name, isolation: nil)
+  }
+}
+
+@Suite("JSONLFileSessionStore witness isolation")
+struct JSONLFileSessionStoreIsolationTests {
+  @Test("every async witness repeats its SessionStore requirement's isolation annotation")
+  func witnessesRepeatRequirementIsolation() throws {
+    let requirements = try asyncDeclarations(inSessionsFileNamed: "SessionStore.swift")
+    let witnesses = try asyncDeclarations(inSessionsFileNamed: "JSONLFileSessionStore.swift")
+
+    // Guard the scanner itself: an expression that matched nothing would
+    // otherwise make this test vacuously green.
+    #expect(
+      requirements.map(\.name).sorted() == [
+        "appendEntry", "createSession", "listSessionIDs", "loadSession",
+      ]
+    )
+    #expect(witnesses.map(\.name).sorted() == requirements.map(\.name).sorted())
+
+    for requirement in requirements {
+      #expect(
+        requirement.isolation != nil,
+        "SessionStore.\(requirement.name) must state its isolation explicitly (CC-2)"
+      )
+      let witness = witnesses.first { $0.name == requirement.name }
+      #expect(
+        witness?.isolation == requirement.isolation,
+        """
+        JSONLFileSessionStore.\(requirement.name) is annotated \
+        \(witness?.isolation ?? "nothing") but witnesses a SessionStore requirement annotated \
+        \(requirement.isolation ?? "nothing") (CC-2)
+        """
+      )
+    }
   }
 }
