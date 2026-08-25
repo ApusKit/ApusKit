@@ -270,7 +270,7 @@ Re-exports every target. Zero logic. Nothing else.
 
 - **DOC-1** DocC per target with `--warnings-as-errors`; each target has a landing article including a standalone (loop-free) usage example proving library-first (G7).
 - **DOC-2** `Examples/apuskit-cli`: ArgumentParser CLI with two subcommands — `chat` (interactive loop against any registered provider) and `serve-mcp` (exposes its tools as an MCP server over stdio). This is the living proof for CLI-first macOS support.
-- **DOC-3** `Examples/consumers/`: one minimal executable per target importing ONLY that target (§7 consumer-simulation job compiles them all, plus one with `-default-isolation MainActor` + `NonisolatedNonsendingByDefault` to simulate an app consumer).
+- **DOC-3** `Examples/consumers/`: one minimal executable per target, each declaring **exactly one ApusKit product dependency** — that target — in its own `Package.swift` (§7 consumer-simulation job compiles them all, plus one with `-default-isolation MainActor` + `NonisolatedNonsendingByDefault` to simulate an app consumer). A consumer MAY `import` sibling modules that reach it transitively through its one product: `public import` propagates API-surface diagnostics, NOT transitive bare-name visibility, so a consumer doing real work with `Agent` must still `import ApusKitCore`/`ApusKitProviders`/`ApusKitTools` to spell their types. Only the `ApusKit` umbrella's `@_exported public import` (§3.9) re-exports transitively; the umbrella consumer is what proves that. What this job gates is the **product dependency graph**, not the import list.
 - **DOC-4** Any new public API family starts as `docs/proposals/NNNN-<name>.md` (short: motivation, proposed API, alternatives) in the same or a prior PR.
 
 ## 7. CI gates (all required on every PR unless marked nightly)
@@ -281,12 +281,20 @@ Re-exports every target. Zero logic. Nothing else.
 | Tests (macOS matrix) | `swift test` on Swift 6.2 + nightly toolchain | all green |
 | Format | `swift format lint --strict --recursive .` | clean |
 | API breakage | `swift package diagnose-api-breaking-changes` vs PR base | no undocumented breaks |
-| Docs | `swift package generate-documentation --warnings-as-errors` | clean |
+| Docs | `swift package generate-documentation --warnings-as-errors`, scoped with one `--target` per ApusKit target (see below) | clean |
 | TSan | `swift test --sanitize=thread` | clean |
 | Consumer simulation | build `Examples/consumers/*` (incl. MainActor-default variant) | compiles |
 | Traits matrix | build with no traits / `NIO` / `MCP` / both | compiles + tests |
 | Fuzz (nightly) | libFuzzer+ASan on SSE + JSONL + partial-JSON kernels, 60 s smoke, in-repo corpus | no crashes |
 | Benchmarks (nightly) | `package-benchmark` run, trend recorded | no silent regression >10% |
+
+**The Docs command MUST be `--target`-scoped.** Unscoped, `generate-documentation` also documents
+every dependency product pulled into the graph, and a dependency's own doc comments are outside this
+project's control: `swift-json-schema` 0.9.1 cross-references a nonexistent `Keywords.AdditionalProperties`
+symbol at `Sources/JSONComponent/TypeSpecific/JSONObject.swift:80`, which `--warnings-as-errors` turns
+into 184 fatal errors. The gate therefore names each ApusKit target explicitly — the same list
+`.spi.yml`'s `documentation_targets` carries — so the gate measures OUR documentation and cannot be
+broken by a dependency's. Adding a target means adding it here, in `.spi.yml`, and in `docs.yml`.
 
 ## 8. Build order — technical backing of the PRD milestones
 

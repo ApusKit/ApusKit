@@ -14,12 +14,13 @@ workflow once the milestone that gives it a subject lands.
 | Fuzz (nightly): libFuzzer+ASan on SSE + JSONL + partial-JSON kernels | The wire-format kernels (SSE parser, JSONL, partial-JSON) don't exist yet — M0 ships no parsing code to fuzz. | M1 Real streaming (§3.2 kernels) |
 | Benchmarks (nightly): `package-benchmark` run, trend recorded | No hot path exists to benchmark yet: `ScriptedProvider` and the M0 run loop are deterministic, in-memory, and not performance-sensitive. | M1 Real streaming (real wire-format kernels give the suite something worth trending) |
 
-## Docs gate deviation
+## Why the Docs gate is `--target`-scoped
 
-The `Docs` row *is* shipped (`.github/workflows/docs.yml`), but not with
-§7's literal command line. Run unscoped, `swift package
-generate-documentation --warnings-as-errors` exits 1 — and not because of
-ApusKit.
+The `Docs` row is shipped (`.github/workflows/docs.yml`) and is **not** a
+deferral — it is a full gate. TRD §7 now specifies the scoped command
+directly; this section is the measurement behind that wording. Run
+unscoped, `swift package generate-documentation --warnings-as-errors`
+exits 1 — and not because of ApusKit.
 
 With no `--target`, swift-docc-plugin 1.5.0 documents
 `Package.allDocumentableTargets`, described in the plugin's own source
@@ -60,9 +61,11 @@ Measured, not assumed:
   plugin exposes no flag to exclude a dependency's targets; `--target` is
   the only lever.
 
-The workflow therefore passes one `--target` per ApusKit target — the
-same five as `.spi.yml`'s `documentation_targets` — which is what DOC-1
+The gate therefore passes one `--target` per ApusKit target — the same
+five as `.spi.yml`'s `documentation_targets` — which is what DOC-1
 ("DocC per target") asks for, and which is clean (exit 0, five archives).
-Revisit if swift-json-schema fixes the cross-references upstream, or if
-swift-docc-plugin gains a dependency-exclusion flag, at which point the
-unscoped form can be restored verbatim.
+Scoping is also the more correct gate on its own merits: it measures
+ApusKit's documentation rather than its dependencies'. Revisit only if a
+future dependency-exclusion flag makes the unscoped form measure the same
+thing; a swift-json-schema fix upstream would remove today's failure but
+would not stop the next dependency from reintroducing it.

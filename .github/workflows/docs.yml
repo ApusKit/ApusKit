@@ -1,12 +1,12 @@
 name: Docs
 
 # §7 gate: "Docs | swift package generate-documentation
-# --warnings-as-errors | clean" (DOC-1: DocC per target).
+# --warnings-as-errors, scoped with one --target per ApusKit target |
+# clean" (DOC-1: DocC per target).
 #
-# DEVIATION from §7's literal command line, recorded in
-# docs/ci-deferrals.md: this job passes one `--target` per ApusKit target
-# (matching .spi.yml's documentation_targets) instead of running the
-# command unscoped.
+# The --target list below is normative and must stay in sync with TRD §7,
+# .spi.yml's documentation_targets, and docs/ci-deferrals.md, which
+# records why the unscoped form cannot be used.
 #
 # With no `--target`, swift-docc-plugin documents
 # `Package.allDocumentableTargets`, which its own source documents as
