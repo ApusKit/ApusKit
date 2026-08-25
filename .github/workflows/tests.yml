@@ -11,6 +11,10 @@ jobs:
   tests:
     name: swift test (${{ matrix.toolchain }})
     runs-on: macos-15
+    # §7 marks the nightly toolchain as the non-required half of this row:
+    # a break in an unreleased compiler is information, not a reason to
+    # block every PR. The released-toolchain leg stays required.
+    continue-on-error: ${{ matrix.toolchain == 'nightly' }}
     strategy:
       fail-fast: false
       matrix:
@@ -42,11 +46,23 @@ jobs:
           echo "::error::No installed Xcode ships Swift 6.2 or later; Package.swift (swift-tools-version: 6.2) cannot be parsed."
           exit 1
 
-      - name: Install nightly toolchain
+      # swift-actions/setup-swift cannot install a nightly on this leg:
+      # it runs semver validation on `swift-version`, and a snapshot
+      # spelling such as `nightly-main` is not a valid semver range, so the
+      # action throws before it downloads anything. swiftly is Swift.org's
+      # own toolchain manager and takes `main-snapshot` directly.
+      - name: Install nightly toolchain (swiftly)
         if: matrix.toolchain == 'nightly'
-        uses: swift-actions/setup-swift@v2
-        with:
-          swift-version: nightly-main
+        run: |
+          set -euo pipefail
+          curl -fsSL -O https://download.swift.org/swiftly/darwin/swiftly.pkg
+          installer -pkg swiftly.pkg -target CurrentUserHomeDirectory
+          "$HOME/.swiftly/bin/swiftly" init --assume-yes --skip-install --quiet-shell-followup
+          # shellcheck disable=SC1091
+          . "$HOME/.swiftly/env.sh"
+          swiftly install main-snapshot --use --assume-yes
+          echo "$HOME/.swiftly/bin" >> "$GITHUB_PATH"
+          swift --version
 
       - name: swift test
         run: swift test
