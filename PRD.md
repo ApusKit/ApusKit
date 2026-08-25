@@ -92,7 +92,7 @@ Built strictly in order. A milestone is **done** only when its gate passes as an
 
 > **Single source of truth for project state.** Rules: **PROG-1** update this section in the same PR that completes a deliverable; **PROG-2** a gate flips to ✅ only with a link to the passing check (CI run / test); **PROG-3** the README status section mirrors the *Current status* line below — regenerate it whenever this section changes; **PROG-4** completed items get a date.
 
-**Current status: 🔨 M0 in progress — package skeleton, core message/event types, `ScriptedProvider` and the agent loop landed with a green local `swift test` (2026-08-25); CI workflows not yet live, so the M0 gate stays un-flipped pending a link to a passing CI run (PROG-2).**
+**Current status: 🔨 M0 in progress — package skeleton, core message/event types, `ScriptedProvider`, the agent loop and the five CI workflows landed with a green local `swift test` (2026-08-25); no CI run has been observed yet, so the M0 gate stays un-flipped pending a link to a passing CI run (PROG-2).**
 
 Legend: ⬜ planned · 🔨 in progress · ✅ done
 
@@ -111,7 +111,7 @@ Legend: ⬜ planned · 🔨 in progress · ✅ done
 - [x] Core message/event types (2026-08-25)
 - [x] ScriptedProvider (F1.5) (2026-08-25)
 - [x] Loop skeleton: multi-turn + tool execution on scripted provider (F4.1, F4.3) (2026-08-25)
-- [ ] First test suites + CI jobs live — test suites are in and green locally; CI workflows not yet added
+- [x] First test suites + CI jobs live — test suites green locally, the five §7 workflows in `.github/workflows/` (2026-08-25)
 - [ ] **Gate:** scripted multi-turn + fake tool round-trip green in CI
 
 ### M1 — Real streaming

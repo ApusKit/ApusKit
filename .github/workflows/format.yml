@@ -1,0 +1,41 @@
+name: Format
+
+# §7 gate: "Format | swift format lint --strict --recursive . | clean".
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  format:
+    name: swift format lint
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select a Swift 6.2+ toolchain
+        run: |
+          set -euo pipefail
+          # Package.swift is `swift-tools-version: 6.2` and uses SwiftPM 6.2
+          # manifest APIs (`.treatAllWarnings(as:)`, `.defaultIsolation(_:)`),
+          # so a Swift 6.1 toolchain cannot even parse it. Pin no version
+          # path -- image updates rename them -- but pick the newest non-beta
+          # Xcode that actually ships Swift 6.2 or later, and fail loudly if
+          # the image carries none.
+          for app in $(ls -d /Applications/Xcode_*.app 2>/dev/null | grep -vi beta | sort -Vr); do
+            bin="$app/Contents/Developer/usr/bin/swift"
+            [ -x "$bin" ] || continue
+            ver=$("$bin" -version 2>/dev/null | sed -n 's/.*Swift version \([0-9][0-9.]*\).*/\1/p' | head -n 1)
+            [ -n "$ver" ] || continue
+            if [ "$(printf '%s\n6.2\n' "$ver" | sort -V | head -n 1)" = "6.2" ]; then
+              echo "Selected $app (Swift $ver)"
+              sudo xcode-select -s "$app"
+              swift --version
+              exit 0
+            fi
+          done
+          echo "::error::No installed Xcode ships Swift 6.2 or later; Package.swift (swift-tools-version: 6.2) cannot be parsed."
+          exit 1
+
+      - name: swift format lint
+        run: swift format lint --strict --recursive .
