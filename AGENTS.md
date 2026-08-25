@@ -6,6 +6,20 @@ consumers inject providers through public protocols.
 
 `CLAUDE.md` is a symlink to this file. **Edit this file only.**
 
+## Reading order
+
+1. This file (`AGENTS.md`) — boundaries, commands, Definition of Done.
+2. `.brain/INDEX.md` — the project brain: durable knowledge, as-built. Read it before any broad
+   codebase research, then only the page your task needs (`code-maps.md` for where code lives,
+   `gotchas.md` before debugging anything surprising).
+3. `TRD.md` — the normative spec, for the section governing your change.
+
+Precedence when they disagree: **the code is authoritative, `TRD.md` is binding, the brain is
+advisory.** If the brain says X and the code says Y, trust the code and correct the brain.
+Durable findings go to the page that owns them (`.brain/owner-page-taxonomy.md`); uncertain ones
+go to `.brain/open-questions.md`. Commit brain edits separately as `chore(brain): ...` — never in
+the same diff as feature code.
+
 ## Non-negotiable rules
 
 **IMPORTANT: `TRD.md` is the law, not a suggestion.** §4 (coding practices), §5 (testing) and §7
@@ -131,4 +145,5 @@ for a test change, state what mutant it was proven to catch. All commits DCO-sig
 ## Where to look
 
 `PRD.md` (capabilities, milestones, §5 state) · `TRD.md` (technical law) · `README.md` (status) ·
-`docs/sendable-audit.md` · `docs/ci-deferrals.md` · `.agentwork/` (per-milestone working plans).
+`docs/sendable-audit.md` · `docs/ci-deferrals.md` · `.brain/INDEX.md` (project brain) ·
+`.agentwork/` (per-run plans, gitignored).
