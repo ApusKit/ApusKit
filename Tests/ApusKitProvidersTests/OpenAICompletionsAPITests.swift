@@ -153,6 +153,46 @@ struct OpenAICompletionsAPIRequestShapeTests {
     #expect(messages[3]["tool_call_id"] as? String == "call_1")
   }
 
+  @Test("ignores LLMRequest.cacheBreakpoints without error (PROV-2)")
+  func ignoresCacheBreakpoints() throws {
+    // Force-unwrap justified: fixed, valid URL literal.
+    // swift-format-ignore: NeverForceUnwrap
+    let baseURL = URL(string: "https://api.openai.com/v1")!
+    let connection = ProviderConnection(
+      baseURL: baseURL, auth: .bearer("sk-test"), transport: NeverCalledTransport())
+    let messages: [LLMRequestMessage] = [
+      .user(UserMessage(content: [.text("hi")])),
+      .assistant(
+        AssistantMessage(
+          content: [.text("hello")], stopReason: .endTurn,
+          usage: Usage(inputTokens: 1, outputTokens: 1))),
+      .user(UserMessage(content: [.text("again")])),
+    ]
+
+    let plain = try OpenAICompletionsAPI.makeHTTPRequest(
+      for: LLMRequest(model: "gpt-4o-mini", messages: messages), connection: connection)
+    let hinted = try OpenAICompletionsAPI.makeHTTPRequest(
+      for: LLMRequest(model: "gpt-4o-mini", messages: messages, cacheBreakpoints: [0, 2]),
+      connection: connection)
+
+    // Cache hints have no Chat Completions wire equivalent, so the hinted
+    // request must be indistinguishable from the plain one rather than
+    // merely "not an error" — that is what keeps context provider-neutral
+    // (PROV-2). Bodies are compared as decoded JSON, not bytes: the encoder
+    // does not promise a stable key order.
+    #expect(hinted.url == plain.url)
+    #expect(hinted.method == plain.method)
+    #expect(hinted.headers == plain.headers)
+    let hintedJSON = try JSONSerialization.jsonObject(with: #require(hinted.body))
+    let plainJSON = try JSONSerialization.jsonObject(with: #require(plain.body))
+    #expect(
+      NSDictionary(dictionary: try #require(hintedJSON as? [String: Any]))
+        == NSDictionary(dictionary: try #require(plainJSON as? [String: Any])))
+
+    let body = try #require(hinted.body)
+    #expect(!String(decoding: body, as: UTF8.self).contains("cache_control"))
+  }
+
   @Test("preserves an arbitrary OpenAI-compatible baseURL with no version path")
   func preservesArbitraryBaseURL() throws {
     // Force-unwrap justified: fixed, valid URL literal.

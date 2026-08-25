@@ -219,14 +219,6 @@ fileprivate struct ResponseStreamState {
   /// Whether any tool call was produced this turn, used to infer
   /// `stopReason` at `response.completed`.
   var producedToolCall = false
-
-  /// Per-content-index accumulator for streamed function-call arguments.
-  ///
-  /// The unified `.toolCallDelta` event forwards each raw delta as it
-  /// arrives; the accumulator additionally repairs each index's running
-  /// snapshot so a malformed or truncated arguments stream never wedges
-  /// this adapter.
-  var argumentAccumulators: [Int: PartialJSONAccumulator] = [:]
 }
 
 extension OpenAIResponsesAPI {
@@ -270,8 +262,10 @@ extension OpenAIResponsesAPI {
         let event = try? JSONDecoder().decode(FunctionCallArgumentsDeltaEvent.self, from: data)
       else { return false }
       let contentIndex = event.outputIndex ?? 0
-      state.argumentAccumulators[contentIndex, default: PartialJSONAccumulator()]
-        .append(event.delta)
+      // Forwarded verbatim: `.toolCallDelta` is an append-only contract —
+      // `RunLoop` concatenates the fragments — so this adapter must not
+      // rewrite them. Repairing a partial arguments snapshot is a reader's
+      // concern, not the wire adapter's.
       continuation.yield(
         .toolCallDelta(contentIndex: contentIndex, argumentsJSONDelta: event.delta))
       return false

@@ -202,6 +202,37 @@ struct OpenAIResponsesAPIRequestShapeTests {
     #expect(input[3]["output"] as? String == "72F and sunny")
   }
 
+  @Test("ignores LLMRequest.cacheBreakpoints without error (PROV-2)")
+  func ignoresCacheBreakpoints() async throws {
+    let transcript = try Fixtures.transcript("text-and-tool-call.sse", for: "openai-responses")
+    let messages: [LLMRequestMessage] = [
+      .user(UserMessage(content: [.text("hi")])),
+      .assistant(
+        AssistantMessage(
+          content: [.text("hello")], stopReason: .endTurn,
+          usage: Usage(inputTokens: 1, outputTokens: 1))),
+      .user(UserMessage(content: [.text("again")])),
+    ]
+
+    func sentRequest(cacheBreakpoints: Set<Int>) async throws -> HTTPStreamRequest {
+      let log = RequestSpyLog()
+      let connection = connection(transport: FixtureTransport(body: transcript, log: log))
+      let request = LLMRequest(
+        model: "gpt-5", messages: messages, cacheBreakpoints: cacheBreakpoints)
+      _ = try await collect(OpenAIResponsesAPI().stream(request: request, connection: connection))
+      return try #require(await log.requests.first)
+    }
+
+    let plain = try await sentRequest(cacheBreakpoints: [])
+    let hinted = try await sentRequest(cacheBreakpoints: [0, 2])
+
+    // The Responses API has no cache-hint wire concept, so the request must
+    // be byte-identical rather than merely "not an error" — that is what
+    // keeps context provider-neutral (PROV-2).
+    #expect(hinted == plain)
+    #expect(!String(decoding: hinted.body ?? Data(), as: UTF8.self).contains("cache_control"))
+  }
+
   @Test("ignores auth-less connections without adding an Authorization header")
   func noAuthOmitsAuthorizationHeader() async throws {
     let log = RequestSpyLog()
