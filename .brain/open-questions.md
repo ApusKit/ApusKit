@@ -21,10 +21,3 @@ delete the question.
       `Tests/Fixtures/conformance-baseline.yml`. Swapping in real recordings later is a data change,
       not a code change. M2's session codec still needs fixtures with a known provenance, and TEST-3
       names pi v3 session files specifically.
-- [ ] **How long does the nightly Tests leg stay red?** It fails compiling
-      `swift-snapshot-testing`'s `AssertSnapshot.swift:648` — `generic struct 'Attachment' requires
-      that 'NSImage' conform to 'Attachable'` — against the unreleased toolchain's swift-testing
-      attachment API. Nothing in ApusKit is involved, and §7 marks this leg the non-required half of
-      its row (`continue-on-error` in `tests.yml`), so it does not block. It resolves when
-      swift-snapshot-testing catches up; until then the leg carries no signal about this package,
-      and a real ApusKit break on nightly would be hidden behind it.

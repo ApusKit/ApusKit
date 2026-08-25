@@ -482,3 +482,29 @@ Do: probe the toolchain path. When adding a workflow, copy the corrected step fr
 (`grep -c` to confirm).
 Avoid: trusting a hand-rolled toolchain selector whose success path has never run. A guard that can
 only fail is indistinguishable from a guard that works, until something needs it to pass.
+
+## A test-only dependency still counts under FORB-3
+
+Symptom: the nightly Tests leg fails compiling a *dependency* —
+`swift-snapshot-testing`'s `AssertSnapshot.swift:648`, `generic struct 'Attachment' requires that
+'NSImage' conform to 'Attachable'` — with nothing in ApusKit involved. PKG-5 listed the package as
+allowed "test targets only", so it read as sanctioned.
+Evidence: 13 call sites, all `assertInlineSnapshot(of: dump(events), as: .lines)` where `dump(_:)`
+is a private `-> String` helper defined separately in each of the three provider test files. The
+library documents `.lines` as "a snapshot strategy for comparing strings based on equality", and
+implements it as `guard old != new else { return nil }`. `InlineSnapshotTesting` nonetheless depends
+unconditionally on `SnapshotTesting`, in which **14 files import AppKit/UIKit** — `NSView`,
+`NSViewController`, `UIImage`, `CALayer`, `NSBezierPath`, SceneKit, SpriteKit. Removed in `d3b133d`;
+both legs green in run 32887225558, the nightly one for the first time ever.
+Impact: FORB-3 says no AppKit/UIKit **anywhere in the package**, and that nothing may be written that
+*would* block Linux — a test-target dependency is inside that boundary. A UI framework arrived
+transitively, nothing flagged it, and it took a CI leg down for a reason unrelated to this code.
+While that leg was red it carried no signal, so a genuine ApusKit break on nightly would have hidden
+behind it.
+Do: before adopting an assertion helper, read what it actually *does* — `.lines`'s own doc comment
+gave the whole game away — and check what its package pulls in
+(`grep -rl 'import AppKit\|import UIKit' .build/checkouts/<pkg>/Sources`). Prefer `#expect` when the
+comparison is plain equality.
+Avoid: reading "test targets only" in PKG-5, or a green build, as evidence that a dependency is
+appropriate. Note `swift-syntax` is NOT removable this way — `swift-json-schema`'s `@Schemable`
+macro plugin needs it regardless.
