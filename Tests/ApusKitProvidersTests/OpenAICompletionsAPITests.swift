@@ -8,7 +8,6 @@
 import ApusKitCore
 import ApusKitProviders
 import Foundation
-import InlineSnapshotTesting
 import JSONSchema
 import TestSupport
 import Testing
@@ -53,8 +52,8 @@ private func assertSplitInvariant(_ transcript: Data, matches expected: [StreamE
   }
 }
 
-/// Renders a `[StreamEvent]` sequence as a stable textual dump for
-/// `InlineSnapshotTesting` (`TEST-4`).
+/// Renders a `[StreamEvent]` sequence as a stable textual dump, to
+/// compare against an inline expected literal (`TEST-4`).
 private func dump(_ events: [StreamEvent]) -> String {
   events.map(describe).joined(separator: "\n") + "\n"
 }
@@ -312,15 +311,15 @@ struct OpenAICompletionsAPIConformanceTests {
     let transcript = try Fixtures.transcript("text-only.sse", for: "openai-completions")
     let events = try await replay(chunks: [transcript])
 
-    assertInlineSnapshot(of: dump(events), as: .lines) {
-      """
-      start
-      textDelta(0, "Hello")
-      textDelta(0, ", world!")
-      done(usage: in=12 out=4 cacheRead=0 cacheWrite=0, stopReason: endTurn)
+    #expect(
+      dump(events) == """
+        start
+        textDelta(0, "Hello")
+        textDelta(0, ", world!")
+        done(usage: in=12 out=4 cacheRead=0 cacheWrite=0, stopReason: endTurn)
 
-      """
-    }
+        """
+    )
 
     try await assertSplitInvariant(transcript, matches: events)
   }
@@ -330,18 +329,18 @@ struct OpenAICompletionsAPIConformanceTests {
     let transcript = try Fixtures.transcript("tool-call.sse", for: "openai-completions")
     let events = try await replay(chunks: [transcript])
 
-    assertInlineSnapshot(of: dump(events), as: .lines) {
-      """
-      start
-      toolCallStart(0, id: "call_abc123", name: "get_weather")
-      toolCallDelta(0, "{\\"loc")
-      toolCallDelta(0, "ation\\":\\"S")
-      toolCallDelta(0, "F\\"}")
-      toolCallEnd(0)
-      done(usage: in=18 out=18 cacheRead=32 cacheWrite=0, stopReason: toolUse)
+    #expect(
+      dump(events) == """
+        start
+        toolCallStart(0, id: "call_abc123", name: "get_weather")
+        toolCallDelta(0, "{\\"loc")
+        toolCallDelta(0, "ation\\":\\"S")
+        toolCallDelta(0, "F\\"}")
+        toolCallEnd(0)
+        done(usage: in=18 out=18 cacheRead=32 cacheWrite=0, stopReason: toolUse)
 
-      """
-    }
+        """
+    )
 
     // The fragments, concatenated in order, must reconstruct valid JSON —
     // the adapter forwards them verbatim (PROV-1's accumulator lives in
@@ -363,19 +362,19 @@ struct OpenAICompletionsAPIConformanceTests {
     let transcript = try Fixtures.transcript("multi-tool-calls.sse", for: "openai-completions")
     let events = try await replay(chunks: [transcript])
 
-    assertInlineSnapshot(of: dump(events), as: .lines) {
-      """
-      start
-      toolCallStart(0, id: "call_1", name: "search")
-      toolCallStart(1, id: "call_2", name: "lookup")
-      toolCallDelta(0, "{\\"q\\":\\"a\\"}")
-      toolCallDelta(1, "{\\"id\\":1}")
-      toolCallEnd(0)
-      toolCallEnd(1)
-      done(usage: in=40 out=10 cacheRead=0 cacheWrite=0, stopReason: toolUse)
+    #expect(
+      dump(events) == """
+        start
+        toolCallStart(0, id: "call_1", name: "search")
+        toolCallStart(1, id: "call_2", name: "lookup")
+        toolCallDelta(0, "{\\"q\\":\\"a\\"}")
+        toolCallDelta(1, "{\\"id\\":1}")
+        toolCallEnd(0)
+        toolCallEnd(1)
+        done(usage: in=40 out=10 cacheRead=0 cacheWrite=0, stopReason: toolUse)
 
-      """
-    }
+        """
+    )
 
     try await assertSplitInvariant(transcript, matches: events)
   }

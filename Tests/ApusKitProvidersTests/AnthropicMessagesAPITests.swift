@@ -9,7 +9,6 @@
 import ApusKitCore
 import ApusKitProviders
 import Foundation
-import InlineSnapshotTesting
 import JSONSchema
 import TestSupport
 import Testing
@@ -37,8 +36,8 @@ private func collectEvents(
   return events
 }
 
-/// Renders `events` as one deterministic line per event, for
-/// `InlineSnapshotTesting` (TEST-4).
+/// Renders `events` as one deterministic line per event, to compare
+/// against an inline expected literal (TEST-4).
 private func dump(_ events: [StreamEvent]) -> String {
   events.map { event in
     switch event {
@@ -296,14 +295,14 @@ struct AnthropicMessagesAPITests {
     let transcript = try Fixtures.transcript("text-response.sse", for: "anthropic-messages")
     let events = try await collectEvents(chunks: [transcript])
 
-    assertInlineSnapshot(of: dump(events), as: .lines) {
-      """
-      start
-      textDelta(0, "Hello")
-      textDelta(0, ", world!")
-      done(Usage(inputTokens: 25, outputTokens: 12, cacheReadTokens: 10, cacheWriteTokens: 5), endTurn)
-      """
-    }
+    #expect(
+      dump(events) == """
+        start
+        textDelta(0, "Hello")
+        textDelta(0, ", world!")
+        done(Usage(inputTokens: 25, outputTokens: 12, cacheReadTokens: 10, cacheWriteTokens: 5), endTurn)
+        """
+    )
   }
 
   @Test("a text-only turn survives a chunk split at every byte offset")
@@ -328,18 +327,18 @@ struct AnthropicMessagesAPITests {
     // The provider chopped its first fragment mid-key (`{"loc`); only the
     // `{` the accumulator has committed is forwarded, and the rest of the
     // key rides along with the next delta.
-    assertInlineSnapshot(of: dump(events), as: .lines) {
-      """
-      start
-      textDelta(0, "Let me check that.")
-      toolCallStart(1, id: "toolu_01", name: "get_weather")
-      toolCallDelta(1, "{")
-      toolCallDelta(1, "\\"location\\":\\"Paris")
-      toolCallDelta(1, "\\"}")
-      toolCallEnd(1)
-      done(Usage(inputTokens: 40, outputTokens: 30, cacheReadTokens: 0, cacheWriteTokens: 0), toolUse)
-      """
-    }
+    #expect(
+      dump(events) == """
+        start
+        textDelta(0, "Let me check that.")
+        toolCallStart(1, id: "toolu_01", name: "get_weather")
+        toolCallDelta(1, "{")
+        toolCallDelta(1, "\\"location\\":\\"Paris")
+        toolCallDelta(1, "\\"}")
+        toolCallEnd(1)
+        done(Usage(inputTokens: 40, outputTokens: 30, cacheReadTokens: 0, cacheWriteTokens: 0), toolUse)
+        """
+    )
 
     let argumentsJSON = events.compactMap { event -> String? in
       if case .toolCallDelta(_, let delta) = event { return delta }
@@ -372,16 +371,16 @@ struct AnthropicMessagesAPITests {
     // escape whose remainder never arrived. It is held back rather than
     // forwarded, and closing the block through the accumulator completes
     // the string and the object instead.
-    assertInlineSnapshot(of: dump(events), as: .lines) {
-      """
-      start
-      toolCallStart(0, id: "toolu_02", name: "write_note")
-      toolCallDelta(0, "{\\"note\\":\\"line one")
-      toolCallDelta(0, "\\"}")
-      toolCallEnd(0)
-      error(decoding, "provider stream ended before a terminal event")
-      """
-    }
+    #expect(
+      dump(events) == """
+        start
+        toolCallStart(0, id: "toolu_02", name: "write_note")
+        toolCallDelta(0, "{\\"note\\":\\"line one")
+        toolCallDelta(0, "\\"}")
+        toolCallEnd(0)
+        error(decoding, "provider stream ended before a terminal event")
+        """
+    )
 
     let argumentsJSON = events.compactMap { event -> String? in
       if case .toolCallDelta(_, let delta) = event { return delta }
@@ -411,12 +410,12 @@ struct AnthropicMessagesAPITests {
     let transcript = try Fixtures.transcript("error.sse", for: "anthropic-messages")
     let events = try await collectEvents(chunks: [transcript])
 
-    assertInlineSnapshot(of: dump(events), as: .lines) {
-      """
-      start
-      error(provider, "Overloaded")
-      """
-    }
+    #expect(
+      dump(events) == """
+        start
+        error(provider, "Overloaded")
+        """
+    )
   }
 
   @Test("a provider error survives a chunk split at every byte offset")
@@ -451,12 +450,12 @@ struct AnthropicMessagesAPITests {
     }
 
     assertPROV1Shape(events)
-    assertInlineSnapshot(of: dump(events), as: .lines) {
-      """
-      start
-      error(transport, "HTTP 429")
-      """
-    }
+    #expect(
+      dump(events) == """
+        start
+        error(transport, "HTTP 429")
+        """
+    )
   }
 
   @Test("an error event with no preceding message_start still yields .start first")
@@ -473,12 +472,12 @@ struct AnthropicMessagesAPITests {
       ])
 
     assertPROV1Shape(events)
-    assertInlineSnapshot(of: dump(events), as: .lines) {
-      """
-      start
-      error(provider, "Overloaded")
-      """
-    }
+    #expect(
+      dump(events) == """
+        start
+        error(provider, "Overloaded")
+        """
+    )
   }
 
   @Test("a byte stream that ends without a terminal event still yields exactly one terminal .error")

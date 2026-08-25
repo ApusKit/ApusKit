@@ -9,7 +9,6 @@
 import ApusKitCore
 import ApusKitProviders
 import Foundation
-import InlineSnapshotTesting
 import JSONSchema
 import TestSupport
 import Testing
@@ -67,8 +66,8 @@ private func assertStableAcrossEveryChunkBoundary(
   }
 }
 
-/// Renders an event stream as a deterministic textual dump for
-/// `InlineSnapshotTesting` (TEST-4). Writes out every field explicitly
+/// Renders an event stream as a deterministic textual dump, to compare
+/// against an inline expected literal (TEST-4). Writes out every field explicitly
 /// rather than relying on `Usage`/`StreamError`'s default mirror-based
 /// description, which is not guaranteed stable across Swift versions.
 private func dump(_ events: [StreamEvent]) -> String {
@@ -336,18 +335,18 @@ struct OpenAIResponsesAPIConformanceTests {
       return
     }
 
-    assertInlineSnapshot(of: dump(events), as: .lines) {
-      """
-      start
-      textDelta(0, "The weather in ")
-      textDelta(0, "Boston is")
-      toolCallStart(1, id: call_abc123, name: get_weather)
-      toolCallDelta(1, "{\\"location\\":")
-      toolCallDelta(1, "\\"Boston, MA\\"}")
-      toolCallEnd(1)
-      done(usage: input=24 output=18 cacheRead=100 cacheWrite=0, stopReason: toolUse)
-      """
-    }
+    #expect(
+      dump(events) == """
+        start
+        textDelta(0, "The weather in ")
+        textDelta(0, "Boston is")
+        toolCallStart(1, id: call_abc123, name: get_weather)
+        toolCallDelta(1, "{\\"location\\":")
+        toolCallDelta(1, "\\"Boston, MA\\"}")
+        toolCallEnd(1)
+        done(usage: input=24 output=18 cacheRead=100 cacheWrite=0, stopReason: toolUse)
+        """
+    )
 
     assertPROV1Shape(events)
 
@@ -388,12 +387,12 @@ struct OpenAIResponsesAPIConformanceTests {
       return
     }
 
-    assertInlineSnapshot(of: dump(events), as: .lines) {
-      """
-      start
-      error(code: provider, message: "the model is overloaded")
-      """
-    }
+    #expect(
+      dump(events) == """
+        start
+        error(code: provider, message: "the model is overloaded")
+        """
+    )
 
     assertPROV1Shape(events)
     try await assertStableAcrossEveryChunkBoundary(data, expected: events)
@@ -408,12 +407,12 @@ struct OpenAIResponsesAPIConformanceTests {
         connection: connection(transport: transport)))
 
     assertPROV1Shape(events)
-    assertInlineSnapshot(of: dump(events), as: .lines) {
-      """
-      start
-      error(code: transport, message: "HTTP 429")
-      """
-    }
+    #expect(
+      dump(events) == """
+        start
+        error(code: transport, message: "HTTP 429")
+        """
+    )
   }
 
   @Test("a response.failed with no preceding response.created still yields .start first")
@@ -429,12 +428,12 @@ struct OpenAIResponsesAPIConformanceTests {
     let events = try await replay(data)
 
     assertPROV1Shape(events)
-    assertInlineSnapshot(of: dump(events), as: .lines) {
-      """
-      start
-      error(code: provider, message: "the model is overloaded")
-      """
-    }
+    #expect(
+      dump(events) == """
+        start
+        error(code: provider, message: "the model is overloaded")
+        """
+    )
 
     try await assertStableAcrossEveryChunkBoundary(data, expected: events)
   }

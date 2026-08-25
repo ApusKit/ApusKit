@@ -54,7 +54,7 @@ apuskit/
 - **PKG-2** Platforms: `.macOS(.v14)`, `.iOS(.v17)`, `.macCatalyst(.v17)`, `.tvOS(.v17)`, `.visionOS(.v1)`. Nothing else. No Linux CI, but MUST NOT introduce code that would block Linux (see FORB-3/FORB-4).
 - **PKG-3** Upcoming features enabled on all targets: `ExistentialAny`, `MemberImportVisibility`, `InternalImportsByDefault`.
 - **PKG-4** Package **traits**: `NIO` (pulls `async-http-client`, enables the NIO transport backend), `MCP` (pulls `modelcontextprotocol/swift-sdk`, enables `ApusKitMCP`). Default traits: none. Everything else must build with zero traits enabled.
-- **PKG-5** Dependencies (exact-pin anything 0.x): `swift-json-schema` (@Schemable), `modelcontextprotocol/swift-sdk` (trait `MCP`), `async-http-client` (trait `NIO`), `swift-argument-parser` (Examples only), `swift-snapshot-testing` (test targets only), `package-benchmark` (Benchmarks only), `swift-docc-plugin`.
+- **PKG-5** Dependencies (exact-pin anything 0.x): `swift-json-schema` (@Schemable), `modelcontextprotocol/swift-sdk` (trait `MCP`), `async-http-client` (trait `NIO`), `swift-argument-parser` (Examples only), `package-benchmark` (Benchmarks only), `swift-docc-plugin`.
 - **PKG-6** Dependency DAG (arrows = "may import"; anything not listed is forbidden):
 
   ```
@@ -260,7 +260,7 @@ Re-exports every target. Zero logic. Nothing else.
 - **TEST-1** **Swift Testing only.** No XCTest anywhere.
 - **TEST-2** Unit tests use protocol-seam fakes (`ScriptedProvider`, `ToolSpy`, in-memory `SessionStore`). Never URLProtocol stubbing.
 - **TEST-3** **Wire-compat conformance suite**: recorded pi SSE transcripts per API implementation + real pi v3 session files in `Tests/Fixtures/`; known deviations listed ONLY in `conformance-baseline.yml`. A fixture failure not in the baseline fails CI.
-- **TEST-4** Event-stream and rebuilt-context assertions use `InlineSnapshotTesting` on textual dumps.
+- **TEST-4** Event-stream and rebuilt-context assertions render a deterministic **textual dump** and compare it against an inline expected literal with `#expect`. The dump is the contract: one stable line per event, every field written out rather than relying on a mirror-based `description`. No snapshot library — the comparison is string equality, and a dependency that supplies it must not drag UI frameworks into the test build (FORB-3).
 - **TEST-5** Live provider suites are `@Suite(.enabled(if: env("ANTHROPIC_API_KEY") != nil))`-style — never CI-blocking.
 - **TEST-6** **Conformance Kit** ships as a product: a reusable Swift Testing suite that any third-party `APIImplementation`/`Tool`/`SessionStore`/`StreamingHTTPTransport` conformance runs against itself. Every built-in conformance runs it in CI.
 - **TEST-7** Every bugfix lands with a regression test reproducing the bug first.
