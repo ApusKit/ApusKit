@@ -8,6 +8,7 @@ public import ApusKitCore
 public import ApusKitProviders
 public import ApusKitTools
 public import JSONSchemaBuilder
+public import Testing
 
 /// A tool that records every call it receives and returns a fixed result.
 ///
@@ -648,4 +649,47 @@ public struct GateTool: Tool {
     await gate.waitUntilReleased()
     return ToolResult(content: [.text("gate released")])
   }
+}
+
+/// Asserts that `events` satisfies `PROV-1`'s per-request stream shape.
+///
+/// Exactly one `.start`, first; exactly one terminal `.done` or `.error`,
+/// last. `PROV-1`'s remaining clause — every `toolCall*` event carries a
+/// `contentIndex` — is structural: `StreamEvent` makes it a required
+/// associated value, so no adapter can omit it.
+///
+/// Lives here rather than in one suite because `PROV-1` is a contract on
+/// **every** `APIImplementation`, not on one adapter. It is the check the
+/// `TEST-6` Conformance Kit will generalise; until that ships, every
+/// built-in adapter's suite calls it directly.
+public func assertPROV1Shape(
+  _ events: [StreamEvent],
+  sourceLocation: SourceLocation = #_sourceLocation
+) {
+  #expect(events.first == .start, sourceLocation: sourceLocation)
+  #expect(
+    events.filter {
+      if case .start = $0 { return true }
+      return false
+    }.count == 1,
+    sourceLocation: sourceLocation
+  )
+  switch events.last {
+  case .done, .error:
+    break
+  default:
+    Issue.record(
+      "expected a terminal .done or .error last, got \(String(describing: events.last))",
+      sourceLocation: sourceLocation
+    )
+  }
+  #expect(
+    events.filter {
+      switch $0 {
+      case .done, .error: return true
+      default: return false
+      }
+    }.count == 1,
+    sourceLocation: sourceLocation
+  )
 }

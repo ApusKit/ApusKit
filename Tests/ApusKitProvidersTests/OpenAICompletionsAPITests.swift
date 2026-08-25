@@ -310,6 +310,7 @@ struct OpenAICompletionsAPIConformanceTests {
   func textOnlyResponse() async throws {
     let transcript = try Fixtures.transcript("text-only.sse", for: "openai-completions")
     let events = try await replay(chunks: [transcript])
+    assertPROV1Shape(events)
 
     #expect(
       dump(events) == """
@@ -328,6 +329,7 @@ struct OpenAICompletionsAPIConformanceTests {
   func singleToolCallResponse() async throws {
     let transcript = try Fixtures.transcript("tool-call.sse", for: "openai-completions")
     let events = try await replay(chunks: [transcript])
+    assertPROV1Shape(events)
 
     #expect(
       dump(events) == """
@@ -361,6 +363,7 @@ struct OpenAICompletionsAPIConformanceTests {
   func multipleToolCallsResponse() async throws {
     let transcript = try Fixtures.transcript("multi-tool-calls.sse", for: "openai-completions")
     let events = try await replay(chunks: [transcript])
+    assertPROV1Shape(events)
 
     #expect(
       dump(events) == """
@@ -383,6 +386,7 @@ struct OpenAICompletionsAPIConformanceTests {
   func malformedChunkTerminatesWithError() async throws {
     let transcript = try Fixtures.transcript("malformed.sse", for: "openai-completions")
     let events = try await replay(chunks: [transcript])
+    assertPROV1Shape(events)
 
     #expect(events.count == 2)
     #expect(events.first == .start)

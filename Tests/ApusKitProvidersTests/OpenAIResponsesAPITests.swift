@@ -102,30 +102,6 @@ private func describe(_ event: StreamEvent) -> String {
 
 /// Asserts the `PROV-1` shape: exactly one `.start` first, exactly one
 /// terminal `.done`/`.error` last.
-private func assertPROV1Shape(_ events: [StreamEvent]) {
-  #expect(events.first == .start)
-  #expect(
-    events.filter {
-      if case .start = $0 { return true }
-      return false
-    }.count == 1
-  )
-  switch events.last {
-  case .done, .error:
-    break
-  default:
-    Issue.record("expected a terminal .done or .error last, got \(String(describing: events.last))")
-  }
-  #expect(
-    events.filter {
-      switch $0 {
-      case .done, .error: return true
-      default: return false
-      }
-    }.count == 1
-  )
-}
-
 @Suite("OpenAIResponsesAPI request shape")
 struct OpenAIResponsesAPIRequestShapeTests {
   @Test(
