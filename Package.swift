@@ -54,6 +54,7 @@ let package = Package(
       dependencies: [
         "ApusKitCore",
         "ApusKitWireFormat",
+        .product(name: "JSONSchema", package: "swift-json-schema"),
       ],
       swiftSettings: commonSwiftSettings
     ),

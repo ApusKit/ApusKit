@@ -66,17 +66,26 @@ public struct LLMRequest: Sendable, Equatable {
   /// no equivalent wire concept and ignore this field without error.
   public var cacheBreakpoints: Set<Int>
 
+  /// Tool definitions available to the model for this request (`R4`).
+  ///
+  /// Provider-neutral: each entry carries a name, a description, and a
+  /// JSON-Schema `parameters` value. Defaults to empty so every existing
+  /// caller stays source-compatible.
+  public var tools: [ToolDefinition]
+
   /// Creates a request.
   public init(
     model: String,
     messages: [LLMRequestMessage],
     systemPrompt: String? = nil,
-    cacheBreakpoints: Set<Int> = []
+    cacheBreakpoints: Set<Int> = [],
+    tools: [ToolDefinition] = []
   ) {
     self.model = model
     self.messages = messages
     self.systemPrompt = systemPrompt
     self.cacheBreakpoints = cacheBreakpoints
+    self.tools = tools
   }
 }
 
