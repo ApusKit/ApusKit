@@ -26,8 +26,8 @@ With no `--target`, swift-docc-plugin 1.5.0 documents
 (`Plugins/SharedPackagePluginExtensions/PackageExtensions.swift`) as "All
 targets defined in this package **and its dependencies** that can produce
 documentation". So the unscoped run also builds documentation for
-swift-json-schema's `JSONSchema` and `JSONSchemaBuilder` modules, and a
-broken doc-comment cross-references in the latter become errors under
+swift-json-schema's `JSONSchema` and `JSONSchemaBuilder` modules, whose
+own doc comments carry broken cross-references — errors under
 `--warnings-as-errors`. The defect is in a pinned third-party dependency;
 fixing it is not in ApusKit's gift, and the dependency is required by
 PKG-5 (`swift-json-schema` for `@Schemable`) and by §3.4's `Tool`
@@ -36,24 +36,29 @@ signature (`associatedtype Arguments: Schemable & Decodable & Sendable`).
 Measured, not assumed:
 
 - Unscoped run: **exit 1, 183 `error:` diagnostics, every one of them
-  under `/JSONSchemaBuilder/...`**; zero originate in an ApusKit target.
-  The largest families are ``Keywords.AdditionalProperties`` (28),
-  ``Keywords`` (56) and ``dependentRequired``/``dependentSchemas`` (58),
-  all from doc comments in
-  `Sources/JSONSchemaBuilder/JSONComponent/TypeSpecific/JSONObject.swift`
-  and its siblings.
+  raised against a swift-json-schema source file**; zero originate in an
+  ApusKit target (174 name `/JSONSchemaBuilder/...` in the message
+  itself, the other 9 point at
+  `Sources/JSONSchemaBuilder/JSONComponent/JSONSchemaComponent.swift`).
+  By file: `JSONComponent/JSONSchemaComponent+Conditionals.swift` (87),
+  `JSONComponent/TypeSpecific/JSONObject.swift` (29),
+  `Documentation.docc/Articles/*.md` (15),
+  `JSONComponent/JSONSchemaComponent.swift` (8). By family:
+  ``Keywords`` (58), ``dependentRequired`` (31),
+  ``Keywords.AdditionalProperties`` (29), ``dependentSchemas`` (29).
 - Those links are **unresolvable by construction**: `Keywords` is
   declared `package enum Keywords` in
   `Sources/JSONSchema/Keywords/Keywords.swift` — a *different* module,
   below `public`, so it is absent from JSONSchemaBuilder's symbol graph.
-- **Not fixed upstream.** The newest tag, `v0.13.1`, still carries the
-  same ``Keywords.AdditionalProperties`` link, so bumping the pin does
-  not help.
+- **Nothing to bump to.** `v0.9.1` — the version PKG-5 pins exactly — is
+  swift-json-schema's newest tag (`git ls-remote --tags`), so there is no
+  later release carrying a fix.
 - **Not fixable by bumping the plugin.** `swift-docc-plugin`'s newest tag
-  is 1.5.0 (the pinned version), and `main` still selects
-  `context.package.allDocumentableTargets` in
-  `Plugins/Swift-DocC Convert/SwiftDocCConvert.swift`. The plugin exposes
-  no flag to exclude a dependency's targets; `--target` is the only lever.
+  is 1.5.0 — the resolved version — and it still selects
+  `context.package.allDocumentableTargets` whenever no `--target` is
+  given (`Plugins/Swift-DocC Convert/SwiftDocCConvert.swift:22-25`). The
+  plugin exposes no flag to exclude a dependency's targets; `--target` is
+  the only lever.
 
 The workflow therefore passes one `--target` per ApusKit target — the
 same five as `.spi.yml`'s `documentation_targets` — which is what DOC-1
