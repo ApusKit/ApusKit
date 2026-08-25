@@ -20,7 +20,7 @@ Legend: ⬜ planned · 🔨 in progress · ✅ done
 
 | Milestone | Status | Gate evidence |
 |---|---|---|
-| M0 Skeleton | 🔨 | — |
+| M0 Skeleton | ✅ | [Tests run 32883395354](https://github.com/ApusKit/ApusKit/actions/runs/32883395354) — `multiTurnToolRoundTrip` green, 165 tests / 28 suites (2026-08-25) |
 | M1 Real streaming | 🔨 | — |
 | M2 Sessions | ⬜ | — |
 | M3 Public 0.1.0 | ⬜ | — |
