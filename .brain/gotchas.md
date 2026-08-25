@@ -53,16 +53,26 @@ strict concurrency, existential-any, warnings-as-errors, all of it — and nothi
 Do: reuse `commonSwiftSettings` for any new target.
 Avoid: writing a fresh `swiftSettings:` array on a new target.
 
-## Local green is not CI green
+## Local green is not CI green — and 6.3 type-checks what 6.2 gives up on
 
-Symptom: `swift test` passes locally on a toolchain the package does not target.
-Evidence: local toolchain is Swift 6.3.2; `Package.swift` declares `swift-tools-version: 6.2`,
-and `.github/workflows/tests.yml` runs a 6.2 leg plus a nightly leg installed via swiftly
-(commit `570a9cb`).
-Impact: PRD gates flip only on a link to a passing CI run (PROG-2). A local pass is evidence for
-you, never evidence for the gate.
-Do: say "green locally" and leave the gate un-flipped until CI is observed.
-Avoid: marking a milestone ✅ from a local run.
+Symptom: `swift test` passes locally and the required `swift test (swift-6.2)` leg fails to
+**compile**, with `macro expansion #expect:1:1: error: the compiler is unable to type-check this
+expression in reasonable time`.
+Evidence: local toolchain is Swift 6.3.2; `Package.swift` declares `swift-tools-version: 6.2` and
+`.github/workflows/tests.yml` runs a 6.2 leg plus a nightly leg installed via swiftly. The first CI
+run that ever reached compilation died on
+`#expect(usage.cost(at: pricing) == 3 + 15 + 0.3 + 3.75)` (`Tests/ApusKitCoreTests/CoreTests.swift`),
+fixed by hoisting it to `let expectedCost: Double = …`. It took the TSan gate down with it — same
+compile error, so a red TSan run is not automatically a data race.
+Impact: comparing a typed value against a chain of *untyped* numeric literals makes the type checker
+enumerate overloads across the chain, inside a macro expansion whose budget is already partly spent.
+6.3 copes, 6.2 does not — so this class of break is invisible locally by construction. PRD gates
+flip only on a link to a passing CI run (PROG-2); a local pass is evidence for you, never for the
+gate.
+Do: name the type once — hoist multi-term literal arithmetic into a `let x: Double = …` above the
+`#expect`. Say "green locally" and leave the gate un-flipped until CI is observed.
+Avoid: multi-term untyped literal arithmetic inside `#expect`/`#require`, and marking a milestone ✅
+from a local run.
 
 ## Five CI gates are deliberately absent
 
@@ -450,3 +460,25 @@ paging cannot advance, and `TRUNC-1` leaves spilling that payload to the consume
 Avoid: `offset += limit`, and any new byte-level cut that does not back off over UTF-8
 continuation bytes (`b & 0xC0 == 0x80`) the way `Truncation.swift`'s `scalarAlignedPrefix` and
 `AnthropicMessagesAPI`'s `ToolCallArgumentBuffer` both do.
+
+## Xcode's `swift` is not in `Contents/Developer/usr/bin` — **Safeguard**
+
+Symptom: every workflow fails in 9–15 seconds, before compiling anything, with
+`::error::No installed Xcode ships Swift 6.2 or later; Package.swift (swift-tools-version: 6.2)
+cannot be parsed.` — on an image that demonstrably ships four of them.
+Evidence: the shared "Select a Swift 6.2+ toolchain" step probed
+`$app/Contents/Developer/usr/bin/swift`, which exists in no Xcode; that directory holds
+`xcodebuild`, `actool`, `atos`. The driver is at
+`$app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swift`. So
+`[ -x "$bin" ] || continue` skipped every candidate and the loop fell through to its own `exit 1`.
+`gh api repos/actions/runner-images/contents/images/macos/macos-15-Readme.md` lists Xcode 26.0.1,
+26.1.1, 26.2 and 26.3 on `macos-15`, all Swift 6.2+. Fixed in commit `2c02c3b`; first green run
+https://github.com/ApusKit/ApusKit/actions/runs/32883395354.
+Impact: the error message blames the runner image, which sends you to bump `runs-on` or pin an Xcode
+version — neither is the problem. This shipped in M0 and stayed broken through all of M1, because
+the remote had no CI history and the selector was never once observed to *succeed*.
+Do: probe the toolchain path. When adding a workflow, copy the corrected step from an existing one
+— the block is duplicated verbatim in all five, so a fix must be applied five times
+(`grep -c` to confirm).
+Avoid: trusting a hand-rolled toolchain selector whose success path has never run. A guard that can
+only fail is indistinguishable from a guard that works, until something needs it to pass.
