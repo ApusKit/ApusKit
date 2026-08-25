@@ -1,4 +1,4 @@
 version: 1
 builder:
   configs:
-    - documentation_targets: [ApusKit, ApusKitCore, ApusKitWireFormat, ApusKitProviders, ApusKitTools, ApusKitAgent]
+    - documentation_targets: [ApusKit, ApusKitCore, ApusKitWireFormat, ApusKitProviders, ApusKitTools, ApusKitSessions, ApusKitAgent]

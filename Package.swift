@@ -25,6 +25,7 @@ let package = Package(
     .library(name: "ApusKitWireFormat", targets: ["ApusKitWireFormat"]),
     .library(name: "ApusKitProviders", targets: ["ApusKitProviders"]),
     .library(name: "ApusKitTools", targets: ["ApusKitTools"]),
+    .library(name: "ApusKitSessions", targets: ["ApusKitSessions"]),
     .library(name: "ApusKitAgent", targets: ["ApusKitAgent"]),
     .library(name: "ApusKit", targets: ["ApusKit"]),
   ],
@@ -67,6 +68,15 @@ let package = Package(
       swiftSettings: commonSwiftSettings
     ),
     .target(
+      // PKG-6: imports only ApusKitCore and ApusKitWireFormat.
+      name: "ApusKitSessions",
+      dependencies: [
+        "ApusKitCore",
+        "ApusKitWireFormat",
+      ],
+      swiftSettings: commonSwiftSettings
+    ),
+    .target(
       name: "ApusKitAgent",
       dependencies: [
         "ApusKitCore",
@@ -82,6 +92,7 @@ let package = Package(
         "ApusKitWireFormat",
         "ApusKitProviders",
         "ApusKitTools",
+        "ApusKitSessions",
         "ApusKitAgent",
       ],
       swiftSettings: commonSwiftSettings
@@ -92,6 +103,7 @@ let package = Package(
         "ApusKitCore",
         "ApusKitProviders",
         "ApusKitTools",
+        "ApusKitSessions",
         "ApusKitAgent",
       ],
       path: "Tests/Shared",
@@ -132,6 +144,14 @@ let package = Package(
       name: "ApusKitAgentTests",
       dependencies: [
         "ApusKitAgent",
+        "TestSupport",
+      ],
+      swiftSettings: commonSwiftSettings
+    ),
+    .testTarget(
+      name: "ApusKitSessionsTests",
+      dependencies: [
+        "ApusKitSessions",
         "TestSupport",
       ],
       swiftSettings: commonSwiftSettings
