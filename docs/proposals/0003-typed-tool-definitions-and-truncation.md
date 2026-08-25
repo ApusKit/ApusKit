@@ -82,16 +82,17 @@ renders a non-empty `tools` as Anthropic's `name`/`description`/
 `input_schema` tool objects (`R5`), and omits the `tools` key entirely
 when the list is empty rather than sending `"tools": []` — the same
 "ignore what a caller didn't ask for" posture `0002` establishes for
-`cacheBreakpoints` on the OpenAI adapters. `openai-completions` and
-`openai-responses` do not yet render `tools` on the wire; carrying tool
-definitions into every adapter's request body is the field's purpose,
-but only the Anthropic adapter's rendering landed in this slice; the two
-OpenAI-shaped adapters currently read every other `LLMRequest` field and
-silently ignore `tools`, the same way every adapter already ignores a
-field it has no wire concept for. Adding their rendering is follow-up
-work, not a change to this API — `LLMRequest.tools` is deliberately
-adapter-agnostic so an adapter's rendering can land independently of the
-field's shape.
+`cacheBreakpoints` on the OpenAI adapters. Both OpenAI-shaped adapters
+render a non-empty `tools` too, each in its own wire shape (`R5`):
+`openai-completions` nests the definition under Chat Completions'
+`{"type": "function", "function": {"name", "description", "parameters"}}`
+object, and `openai-responses` flattens it into the Responses API's
+`type`/`name`/`description`/`parameters` function item. Both omit the
+`tools` key entirely when the list is empty, for the same reason the
+Anthropic adapter does — and Chat Completions additionally rejects an
+empty `tools` array outright. `LLMRequest.tools` stays deliberately
+adapter-agnostic: the field carries a provider-neutral `ToolDefinition`,
+and each adapter owns the translation into its own vendor's shape.
 
 ### Schema validation before execution (`ApusKitTools`)
 
@@ -109,7 +110,12 @@ guard validation.isValid else {
 A violation short-circuits into an error `ToolResult` carrying the
 validation failure reasons, joined, in its `content` and `details`
 (`TOOL-2`: invalid input becomes a result the model can react to, never
-a crash or a thrown error). `AnyAgentTool` also now exposes that same
+a crash or a thrown error). The reasons are the validator's *leaf*
+messages, each prefixed with its instance location (`#/count: … is
+below minimum …`): a nested failure surfaces at the top only as
+`Validation failed for keyword 'properties'`, which names nothing the
+model could act on, so the failure tree is flattened to the innermost
+messages before joining. `AnyAgentTool` also now exposes that same
 schema publicly:
 
 ```swift
