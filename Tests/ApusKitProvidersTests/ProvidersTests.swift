@@ -171,7 +171,7 @@ struct ProviderRegistryTests {
       ]
     )
 
-    registry.register(provider)
+    registry.register(provider: provider)
 
     #expect(registry.provider(id: "custom")?.id == "custom")
     #expect(registry.provider(id: "missing") == nil)
@@ -180,9 +180,9 @@ struct ProviderRegistryTests {
   @Test("registers and looks up an APIImplementation by id")
   func registersAPIImplementation() {
     var registry = ProviderRegistry()
-    let provider = ScriptedProvider(scripts: [])
+    let implementation = ScriptedProvider(scripts: [])
 
-    registry.register(provider)
+    registry.register(implementation: implementation)
 
     #expect(registry.implementation(id: .scripted)?.id == .scripted)
     #expect(registry.implementation(id: .anthropicMessages) == nil)
@@ -217,10 +217,10 @@ struct ProviderCostTests {
 /// asked to POST to.
 private func postedURL(for provider: ModelProvider, model: String) async throws -> String {
   var registry = ProviderRegistry()
-  registry.register(provider)
-  registry.register(AnthropicMessagesAPI())
-  registry.register(OpenAICompletionsAPI())
-  registry.register(OpenAIResponsesAPI())
+  registry.register(provider: provider)
+  registry.register(implementation: AnthropicMessagesAPI())
+  registry.register(implementation: OpenAICompletionsAPI())
+  registry.register(implementation: OpenAIResponsesAPI())
 
   let log = RequestSpyLog()
   let resolved = try registry.resolve(
@@ -367,8 +367,8 @@ struct ProviderRegistryResolutionTests {
   func resolvesRegisteredModel() throws {
     var registry = ProviderRegistry()
     let provider = ModelProvider.anthropic(apiKey: "test-key")
-    registry.register(provider)
-    registry.register(ScriptedProvider(id: .anthropicMessages, scripts: []))
+    registry.register(provider: provider)
+    registry.register(implementation: ScriptedProvider(id: .anthropicMessages, scripts: []))
     let transport = FixtureTransport(body: Data())
 
     let resolved = try registry.resolve(
@@ -383,8 +383,8 @@ struct ProviderRegistryResolutionTests {
   @Test("throws unknownModel when no registered provider lists the model")
   func throwsUnknownModel() {
     var registry = ProviderRegistry()
-    registry.register(ModelProvider.anthropic(apiKey: "test-key"))
-    registry.register(ScriptedProvider(id: .anthropicMessages, scripts: []))
+    registry.register(provider: ModelProvider.anthropic(apiKey: "test-key"))
+    registry.register(implementation: ScriptedProvider(id: .anthropicMessages, scripts: []))
 
     do {
       _ = try registry.resolve(model: "does-not-exist", transport: FixtureTransport(body: Data()))
@@ -400,7 +400,7 @@ struct ProviderRegistryResolutionTests {
     "throws unregisteredImplementation when the provider's api has no registered APIImplementation")
   func throwsUnregisteredImplementation() {
     var registry = ProviderRegistry()
-    registry.register(ModelProvider.anthropic(apiKey: "test-key"))
+    registry.register(provider: ModelProvider.anthropic(apiKey: "test-key"))
     // Deliberately no APIImplementation registered under .anthropicMessages.
 
     do {
@@ -421,7 +421,7 @@ struct ProviderRegistryCostTests {
   func costUsesResolvedCatalogPricing() throws {
     var registry = ProviderRegistry()
     let provider = ModelProvider.anthropic(apiKey: "test-key")
-    registry.register(provider)
+    registry.register(provider: provider)
     let modelID = "claude-sonnet-4-5-20250929"
     let info = try #require(provider.models.first { $0.id == modelID })
     // Asymmetric on both axes so a cost function transposing input/output,

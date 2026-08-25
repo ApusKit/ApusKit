@@ -138,7 +138,7 @@ private struct BigFailingTool: Tool {
 
 /// A tool that always succeeds, echoing its argument back.
 private struct EchoTool: Tool {
-  let name = "echo"
+  var name = "echo"
   let description = "Echoes the given text back."
 
   func execute(
@@ -448,6 +448,19 @@ struct AnyAgentToolTests {
 
 @Suite("ToolRegistry")
 struct ToolRegistryTests {
+  @Test("allTools is ordered by name, not by dictionary iteration")
+  func allToolsIsNameOrdered() {
+    var registry = ToolRegistry()
+    // Registered out of order, and enough of them that a dictionary's
+    // iteration order would be very unlikely to come out sorted by chance.
+    for name in ["zeta", "alpha", "mike", "bravo", "yankee", "charlie"] {
+      registry.register(AnyAgentTool(EchoTool(name: name)))
+    }
+
+    #expect(
+      registry.allTools.map(\.name) == ["alpha", "bravo", "charlie", "mike", "yankee", "zeta"])
+  }
+
   @Test("registers a concrete Tool and looks it up by name")
   func registersConcreteTool() async {
     var registry = ToolRegistry()

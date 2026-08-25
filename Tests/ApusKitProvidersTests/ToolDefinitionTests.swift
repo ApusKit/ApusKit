@@ -5,6 +5,7 @@
 // (R4).
 
 import ApusKitProviders
+import Foundation
 import JSONSchema
 import Testing
 
@@ -63,5 +64,28 @@ struct ToolDefinitionTests {
     )
 
     #expect(request.tools == [tool])
+  }
+}
+
+@Suite("APIImplementationID")
+struct APIImplementationIDTests {
+  @Test("encodes as a bare string, not a keyed object")
+  func encodesAsBareString() throws {
+    let encoded = try JSONEncoder().encode(APIImplementationID.anthropicMessages)
+
+    // `RawRepresentable` gives single-value Codable synthesis. Without it,
+    // the synthesized form is `{"rawValue":"anthropic-messages"}` — a shape
+    // nobody wants persisted, and CORE-2 makes it expensive to change once
+    // M2 starts writing session files.
+    #expect(String(decoding: encoded, as: UTF8.self) == "\"anthropic-messages\"")
+  }
+
+  @Test("round-trips through its raw value")
+  func roundTripsThroughRawValue() throws {
+    let encoded = try JSONEncoder().encode(APIImplementationID.openAIResponses)
+    let decoded = try JSONDecoder().decode(APIImplementationID.self, from: encoded)
+
+    #expect(decoded == .openAIResponses)
+    #expect(decoded.rawValue == "openai-responses")
   }
 }

@@ -47,11 +47,9 @@ extension Agent {
       }
 
       let contextForProvider = transformContext(history)
-      // R6: sorted by name first — ToolRegistry.allTools' order is
-      // nondeterministic (dictionary-backed), and an unsorted mapping
-      // would make the tools sent on the wire flap from turn to turn.
+      // R6: `allTools` is name-ordered by contract, so the tools sent on
+      // the wire are stable from turn to turn.
       let toolDefinitions = tools.allTools
-        .sorted { $0.name < $1.name }
         .map { tool in
           ToolDefinition(name: tool.name, description: tool.description, parameters: tool.schema)
         }

@@ -112,8 +112,8 @@ public struct ModelProvider: Sendable {
 }
 
 public struct ProviderRegistry: Sendable {   // runtime injection (pi's models.json/registerProvider analog)
-  public mutating func register(_ provider: ModelProvider)
-  public mutating func register(_ impl: any APIImplementation)
+  public mutating func register(provider: ModelProvider)
+  public mutating func register(implementation: any APIImplementation)
 }
 
 /// Transport seam. PUBLIC, conformable.
@@ -216,7 +216,8 @@ Re-exports every target. Zero logic. Nothing else.
 
 ### API design
 - **API-1** Every `public` declaration has a doc comment; first line is a single-sentence summary.
-- **API-2** Naming per swift.org API Design Guidelines: name by role; call sites read as phrases; `sort()`/`sorted()` pairs; protocols are nouns (is-a) or `-able/-ing` (capability); factories are `make*`.
+- **API-2** Naming per swift.org API Design Guidelines: name by role; call sites read as phrases; `sort()`/`sorted()` pairs; protocols are nouns (is-a) or `-able/-ing` (capability); factories are `make*`. **Overloads that differ only in argument type must differ in role-naming too** — `register(provider:)` and `register(implementation:)`, never two `register(_:)`s doing unrelated things behind one call-site spelling.
+- **API-4** A collection exposed on a public type has a **documented, deterministic order**. Dictionary-backed storage is an implementation detail; leaking its iteration order pushes a `sorted` onto every caller and makes output vary run to run.
 - **API-3** Non-O(1) computed properties document their complexity.
 
 ### Concurrency

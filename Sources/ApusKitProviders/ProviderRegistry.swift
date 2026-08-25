@@ -45,13 +45,13 @@ public struct ProviderRegistry: Sendable {
   public init() {}
 
   /// Registers (or replaces) a provider catalog entry, keyed by its `id`.
-  public mutating func register(_ provider: ModelProvider) {
+  public mutating func register(provider: ModelProvider) {
     providers[provider.id] = provider
   }
 
   /// Registers (or replaces) an `APIImplementation`, keyed by its `id`.
-  public mutating func register(_ impl: any APIImplementation) {
-    implementations[impl.id] = impl
+  public mutating func register(implementation: any APIImplementation) {
+    implementations[implementation.id] = implementation
   }
 
   /// Looks up a previously registered provider by its `id`.

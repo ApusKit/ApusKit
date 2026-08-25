@@ -6,7 +6,7 @@ public import Foundation
 /// Modeled as an extensible identifier rather than a closed enum so
 /// consumers can register their own `APIImplementation`s under their own
 /// identifiers (`PROV-4`) alongside the library's built-in ones.
-public struct APIImplementationID: Sendable, Codable, Equatable, Hashable {
+public struct APIImplementationID: RawRepresentable, Sendable, Codable, Equatable, Hashable {
   /// The underlying string identifier, e.g. `"anthropic-messages"`.
   public var rawValue: String
 

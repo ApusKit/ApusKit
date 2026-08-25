@@ -22,8 +22,16 @@ public struct ToolRegistry: Sendable {
     tools[name]
   }
 
-  /// Every registered tool, in no particular order.
+  /// Every registered tool, ordered by `name`.
+  ///
+  /// The order is part of the contract. The backing store is a dictionary,
+  /// so an unsorted enumeration would vary run to run — and this collection
+  /// feeds the tool list sent to the provider, where a flapping order
+  /// churns the prompt prefix and defeats prompt caching. Sorting belongs
+  /// here, once, rather than in each caller.
+  ///
+  /// - Complexity: O(*n* log *n*) in the number of registered tools.
   public var allTools: [AnyAgentTool] {
-    Array(tools.values)
+    tools.values.sorted { $0.name < $1.name }
   }
 }

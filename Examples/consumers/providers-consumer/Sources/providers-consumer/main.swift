@@ -16,7 +16,7 @@ import ApusKitProviders
 // opposite of the rule.
 var registry = ProviderRegistry()
 registry.register(
-  ScriptedProvider(
+  implementation: ScriptedProvider(
     id: .scripted,
     scripts: [
       [

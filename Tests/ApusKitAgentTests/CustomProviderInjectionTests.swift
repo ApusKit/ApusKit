@@ -125,7 +125,7 @@ struct CustomProviderInjectionTests {
     // factories (PROV-4: TRD §0 "never hardcodes a vendor").
     var registry = ProviderRegistry()
     registry.register(
-      ModelProvider(
+      provider: ModelProvider(
         id: "custom",
         baseURL: baseURL,
         api: .openAICompletions,
@@ -139,7 +139,7 @@ struct CustomProviderInjectionTests {
         ]
       )
     )
-    registry.register(OpenAICompletionsAPI())
+    registry.register(implementation: OpenAICompletionsAPI())
 
     let resolved = try registry.resolve(model: "custom-model", transport: transport)
 
