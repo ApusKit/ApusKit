@@ -10,7 +10,7 @@ checkout. Toolchain: Swift 6.2+ required (`Package.swift` declares `swift-tools-
 
 ```bash
 swift build                     # must be warning-free; warnings are errors
-swift test                      # 136 tests / 26 suites as of 2026-08-25
+swift test                      # 165 tests / 28 suites as of 2026-08-25
 swift package resolve
 ```
 

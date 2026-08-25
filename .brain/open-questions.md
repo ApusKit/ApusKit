@@ -14,15 +14,6 @@ delete the question.
       and Providers (`Package.swift`), carrying the WIRE-1 typed-throws carve-out. It holds only
       two kernels today and imports nothing from `ApusKitCore`. The rest of M1 — the three API
       implementations — will show whether the split earns its keep.
-(delete the question — the answer now lives in `gotchas.md` under "`PartialJSONAccumulator.snapshot()`
-is not append-monotone")
-
-Settled by M1b: the `String` shape survived, and no caller decodes it.
-`Sources/ApusKitProviders/AnthropicMessagesAPI.swift:396-450` uses `snapshot()` purely as a
-byte-level oracle — the longest common prefix of the raw fragments and their repair is what is safe
-to emit — and never parses the result; the two OpenAI adapters do not consult it for their emitted
-payloads at all. A typed value shape would not have helped: the question the adapters ask is
-"how much of this is safe to forward", not "what does this decode to".
 - [ ] **Should the nightly fuzz workflow land with the SSE and partial-JSON kernels alone?**
       `docs/ci-deferrals.md` names M1 as what gives the row a subject, but the row also covers the
       JSONL codec, which is M2. Two of the three targets now exist.

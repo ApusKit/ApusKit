@@ -216,7 +216,7 @@ against a copy of `Sources/ApusKitWireFormat/PartialJSON.swift` prints: an empty
 dangling `\` is *dropped*, not carried.
 Evidence: `Sources/ApusKitWireFormat/PartialJSON.swift:32` — `snapshot()` re-repairs the whole
 buffer on every call. The only correct consuming pattern in the tree is
-`Sources/ApusKitProviders/AnthropicMessagesAPI.swift:396-450`.
+`Sources/ApusKitProviders/AnthropicMessagesAPI.swift:419-461` (`ToolCallArgumentBuffer`).
 Impact: a repair is a whole-buffer rewrite, so byte *i* of one snapshot need not be byte *i* of the
 next, and a snapshot can be *shorter* than the raw bytes fed in. An adapter that appends snapshots,
 or that appends "the repair suffix" at the end of a raw passthrough stream, emits invalid JSON. And
@@ -232,16 +232,17 @@ ever extends what `snapshot()` returned last time.
 
 Symptom: tool arguments arrive doubled (`{"a":1}{"a":1}`) as soon as an adapter "helpfully" yields
 the accumulated arguments instead of only what is new.
-Evidence: `Sources/ApusKitAgent/RunLoop.swift:120` —
+Evidence: `Sources/ApusKitAgent/RunLoop.swift:129` —
 `toolCalls[contentIndex]?.argumentsJSON += argumentsJSONDelta`.
 Impact: `argumentsJSONDelta` is an append-only contract, and it is the whole of what makes the
 three built-in adapters interchangeable. They agree on nothing else here:
-`Sources/ApusKitProviders/AnthropicMessagesAPI.swift:302` withholds the uncommitted tail of each
-`input_json_delta` and flushes the repair remainder at `:363`, so its deltas are *not* verbatim
-wire fragments, while `Sources/ApusKitProviders/OpenAICompletionsAPI.swift:146` and
-`Sources/ApusKitProviders/OpenAIResponsesAPI.swift:276` forward the provider's delta unchanged.
-`OpenAIResponsesAPI.swift:229`'s `argumentAccumulators` is written at `:273` and read nowhere, so
-that adapter's doc-comment promise of a repaired snapshot does not currently hold.
+`Sources/ApusKitProviders/AnthropicMessagesAPI.swift:313` withholds the uncommitted tail of each
+`input_json_delta` and flushes the repair remainder at `:388`, so its deltas are *not* verbatim
+wire fragments, while `Sources/ApusKitProviders/OpenAICompletionsAPI.swift:147` and
+`Sources/ApusKitProviders/OpenAIResponsesAPI.swift:288` forward the provider's delta unchanged.
+(The dead `argumentAccumulators` this entry used to warn about no longer exists — commits `ecf3ee2`
+and `6fc16a6` removed it; `grep -c argumentAccumulators Sources/ApusKitProviders/OpenAIResponsesAPI.swift`
+prints `0`.)
 Do: yield only what is new since the last `.toolCallDelta` for that `contentIndex`. Assert on the
 *concatenation* of a content index's deltas, not on individual fragments.
 Avoid: assuming all three adapters emit the provider's fragments byte-for-byte — an inline snapshot
@@ -314,3 +315,138 @@ no promise about key order, and a byte comparison fails intermittently on two se
 `OpenAIResponsesAPI.makeHTTPRequest` is `internal`, so its suite asserts the request through
 `RequestSpyLog` + `FixtureTransport` instead of calling the builder directly; the Completions one is
 `package` and can be called. Any future "this adapter ignores X" claim needs the same treatment.
+
+## `ValidationResult.errors` names the keyword, not the violation
+
+Symptom: an argument breaking `minimum` yields exactly **one** top-level error whose message is
+`Validation failed for keyword 'properties'`. The real cause — `#/count: … is below minimum …` —
+sits one level down in `ValidationError.errors`, so a flat `errors.map(\.message)` builds an error
+`ToolResult` that names nothing.
+Evidence: `Sources/ApusKitTools/AnyAgentTool.swift:94-102` recurses to the leaves. Replacing
+`let nested = violations(in: error.errors ?? [])` with `let nested: [String] = []` in a temp copy
+fails `AnyAgentToolTests/schemaViolationNeverReachesExecute` with
+`Expectation failed: (message → "Validation failed for keyword 'properties'").contains("count")`.
+Impact: TOOL-1 requires the error result to *name* the violation. The flat version still reports
+`isValid == false` and short-circuits correctly, so the rule reads as met while the model gets no
+way to correct its call.
+Do: flat-map to the leaves and fall back to a node's own message only when it has no nested errors.
+`JSONPointer.description` renders the root as `"#"`, not `""` — skip the location prefix for
+root-level violations (`:100`).
+Avoid: `validation.errors?.map(\.message)`, and assuming one violated constraint produces one
+top-level error.
+
+## A type-mismatch argument cannot prove schema validation runs
+
+Symptom: a test feeding `{"count":"not-a-number"}` to `AnyAgentTool.execute`, asserting an error
+result and `callCount == 0`, stays green with TOOL-1 validation deleted entirely. It proves
+`JSONDecoder`'s pre-existing behaviour, not the new schema check.
+Evidence: mutating `guard validation.isValid else {` to `guard true else {` in a temp copy leaves
+`AnyAgentToolTests/mistypedArgumentsNeverReachExecute` passing (exit 0) while
+`AnyAgentToolTests/schemaViolationNeverReachesExecute` fails (exit 1).
+`Tests/ApusKitToolsTests/ToolsTests.swift:18-26` carries `CountArguments` with
+`@NumberOptions(.minimum(10))` for exactly this reason.
+Impact: decoding happens after validation and rejects wrong JSON types on its own, so every
+"wrong type" fixture is inert as TOOL-1 coverage. A suite built only from them reports schema
+enforcement it never exercises.
+Do: assert schema enforcement with a value that **decodes cleanly and violates a schema-only
+constraint** — `{"count":5}` against `minimum: 10`. Confirm by mutation: with validation disabled,
+the test must go red.
+Avoid: type-mismatch, missing-required and malformed-JSON fixtures as proof that validation ran —
+all three are caught by `JSONDecoder` regardless.
+
+## A re-exported type still needs its defining module imported (SE-0444)
+
+Symptom: `ToolDefinition(name: "x", description: "y", parameters: ["type": "object"])` fails with
+`error: initializer 'init(stringLiteral:)' is not available due to missing import of defining
+module 'JSONSchema' [#MemberImportVisibility]` — even though `import ApusKitProviders` alone makes
+the `JSONValue` *type* visible and the file names no other JSONSchema symbol.
+Evidence: `Package.swift:8` enables `MemberImportVisibility` for every target; the type is
+re-exported by `Sources/ApusKitProviders/ToolDefinition.swift:2` (`public import JSONSchema`).
+Deleting `import JSONSchema` from `Tests/ApusKitProvidersTests/OpenAICompletionsAPITests.swift:12`
+in a temp copy fails `swift build --build-tests` with the error above.
+Impact: SE-0444 scopes *members* — including the `ExpressibleBy*Literal` initializers — to files
+that import the module declaring them, so a re-export gets you the name and nothing else. The error
+points at the literal, not the import, which sends you hunting for a type mismatch.
+Do: import the module that declares the member (`import JSONSchema` alongside
+`import ApusKitProviders`). The mirror rule holds for exposure: a `public` stored property typed by
+a dependency forces `public import` of that module — `Sources/ApusKitTools/AnyAgentTool.swift:3` is
+`public import JSONSchema` for `public let schema: JSONValue`, while `JSONSchemaBuilder` stays
+`internal import` at `:4` because none of its types reach the surface.
+Avoid: assuming a spare import will be caught by warnings-as-errors — adding an unused
+`internal import JSONSchema` to `Sources/ApusKitProviders/OpenAIResponsesAPI.swift` in a temp copy
+built clean, exit 0, zero warnings. Nothing here polices unused imports.
+
+## Three adapters, three request-body builders — a new `LLMRequest` field lands three ways
+
+Symptom: a provider-neutral field added to `LLMRequest` renders in two adapters and silently
+vanishes in the third, with a green build and no warning.
+Evidence: Anthropic and Responses build `[String: Any]` for `JSONSerialization`, so "absent" means
+never inserting the key — `Sources/ApusKitProviders/AnthropicMessagesAPI.swift:101` and
+`Sources/ApusKitProviders/OpenAIResponsesAPI.swift:133`, both guarded by `if !request.tools.isEmpty`.
+Chat Completions encodes a typed `RequestBody: Encodable`, so "absent" means `tools: [Tool]?` left
+`nil` (`Sources/ApusKitProviders/OpenAICompletionsAPI.swift:305`, property at `:389`) **and** the
+property must be listed in the private `CodingKeys` (`:392`). Probe:
+`struct Body: Encodable { var model: String; var tools: [String]?; private enum CodingKeys: String,
+CodingKey { case model } }` encodes `Body(model: "m", tools: ["a"])` to `{"model":"m"}` — no error,
+no warning.
+Impact: an explicit `CodingKeys` enum opts out of synthesis for anything it omits, so a forgotten
+`case` ships a request that never mentions the field. And because the two mechanisms differ, an
+edit that "unifies" the builders breaks one of the two empty-array omission tests.
+Do: add the field to all three builders, then assert the **decoded** JSON body of a request built
+with and without it, per adapter — the same indistinguishability pattern used for
+`cacheBreakpoints`. `OpenAIResponsesAPI.makeRequestBody` is `internal`, so its suite must go through
+`FixtureTransport` + `RequestSpyLog`; `OpenAICompletionsAPI.makeHTTPRequest` is `package` and can be
+called directly.
+Avoid: assuming `Encodable` synthesis picks up a new stored property when the type declares its own
+`CodingKeys`, and assuming all three adapters omit an empty collection the same way.
+
+## `${PIPESTATUS[0]}` is empty in zsh — a piped `swift test` reads as a pass
+
+Symptom: `swift test | tail -3` followed by `echo ${PIPESTATUS[0]}` prints an empty string, and
+`$?` is `0` because it belongs to `tail`. A failing suite reports as green.
+Evidence: `zsh -c 'false | tail -1; echo "PIPESTATUS0=[${PIPESTATUS[0]}] pipestatus=[${pipestatus[1]}] q=[$?]"'`
+prints `PIPESTATUS0=[] pipestatus=[1] q=[0]`. `$SHELL` here is `/bin/zsh`; `PIPESTATUS` is a bashism
+and zsh spells it `$pipestatus`, 1-indexed.
+Impact: the same class of silent green as the `--filter` trap — an agent that pipes a run through
+`tail`/`grep` to shorten the output loses the only signal that matters.
+Do: redirect and read the real code — `swift test > run.log 2>&1; echo "EXIT=$?"; tail -3 run.log`.
+Swift Testing's summary (`Test run with N tests in M suites passed`) is mixed across stdout and
+stderr, so grep the `2>&1` capture, not stdout alone.
+Avoid: `${PIPESTATUS[0]}` in any command here; if you must pipe, use `${pipestatus[1]}`.
+
+## `ToolCancellationSignal` is `Task.isCancelled` in a wrapper, not a stored flag
+
+Symptom: a tool that hands its `signal` to a detached task, or that suspends on a
+`CheckedContinuation` expecting cancellation to wake it, never observes an abort — while an
+otherwise identical tool polling `signal.isCancelled` in its own loop sees it immediately.
+Evidence: `Sources/ApusKitTools/ToolSupport.swift:12-14` — `isCancelled` is literally
+`{ Task.isCancelled }`, evaluated against whichever task reads it. The F2.4 fake that does observe
+cancellation polls cooperatively (`CancellationObservingTool` in `Tests/Shared/TestSupport.swift`),
+driven by `Tests/ApusKitAgentTests/AgentTests.swift:496`.
+Impact: the value carries no state of its own, so passing it across a task boundary reads the wrong
+task's cancellation. `abort()` cancels the enclosing task (LOOP-6); it does not resume a suspended
+continuation, so a tool awaiting one hangs until its `.timeLimit` fires.
+Do: poll `signal.isCancelled` on the task running `execute`, between units of work, and return a
+partial `ToolResult`. Wrap any real suspension in `withTaskCancellationHandler`.
+Avoid: `Task.detached { signal.isCancelled }`, and treating the signal as a latch you can await.
+
+## `headTruncate`'s two caps are on different axes — step by `linesReturned`, not `limit`
+
+Symptom: paging a large tool output with `offset += limit` silently skips content, and for a text
+under 2000 lines the "obvious" continuation call returns an *empty* window with
+`isTruncated == false` while ~50 KB goes unserved.
+Evidence: `Sources/ApusKitTools/Truncation.swift` — `offset`/`limit` count **lines**, `maxBytes`
+counts **bytes**. Whichever fires first ends the window, so when the byte cap wins, the window
+covers fewer lines than `limit` asked for. This shipped broken in the M1c typed-tools slice
+(`offset`/`limit` indexed lines while `maxBytes` sliced the joined window's raw UTF-8) and was
+fixed in `32e2bda`, which added `TruncatedText.linesReturned` and made the byte cap end on a line
+boundary.
+Impact: `limit` is what you *asked for*; `linesReturned` is what you *got*. Only the second is a
+valid continuation step. Before the fix, the byte cap could also cut mid-scalar —
+`headTruncate("aaééé", limit: 10, maxBytes: 3).text` was `"aa\u{FFFD}"`.
+Do: continue with `offset += result.linesReturned`, and stop on `!result.isTruncated`. A window
+with `isTruncated == true` and `linesReturned == 0` means one line alone exceeds `maxBytes` —
+paging cannot advance, and `TRUNC-1` leaves spilling that payload to the consumer.
+Avoid: `offset += limit`, and any new byte-level cut that does not back off over UTF-8
+continuation bytes (`b & 0xC0 == 0x80`) the way `Truncation.swift`'s `scalarAlignedPrefix` and
+`AnthropicMessagesAPI`'s `ToolCallArgumentBuffer` both do.

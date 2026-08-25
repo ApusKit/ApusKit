@@ -3,8 +3,8 @@
 Last reviewed: 2026-08-25
 Source of truth: `Sources`, `Tests`
 
-Where code actually lives at M0. Only paths that exist today appear in backticks; planned
-targets are named in plain text with the milestone that creates them.
+Where code actually lives after M1's typed-tools slice. Only paths that exist today appear in
+backticks; planned targets are named in plain text with the milestone that creates them.
 
 ## Summary
 
@@ -46,20 +46,18 @@ full intended layout — do not treat its absence here as drift.
 | Incremental SSE parser | `Sources/ApusKitWireFormat/SSEParser.swift` | `Tests/ApusKitWireFormatTests/SSEParserTests.swift` | `struct` with `mutating func feed(_:) throws(SSEParseError) -> [SSEEvent]`. Accepts LF, CRLF and bare CR; a trailing bare CR is held back (see `gotchas.md`). Lines are retired by offset and the buffer drained once per call — per-line `removeFirst` made it quadratic |
 | Partial-JSON accumulator | `Sources/ApusKitWireFormat/PartialJSON.swift` | `Tests/ApusKitWireFormatTests/PartialJSONTests.swift` | `PartialJSONAccumulator.append(_:)` / `snapshot() -> String`. Defines no JSON value type — decoding is the caller's job, since `JSONValue` is swift-json-schema's and PKG-6 puts it out of reach |
 | Default HTTP transport | `Sources/ApusKitProviders/URLSessionTransport.swift` | `Tests/ApusKitProvidersTests/URLSessionTransportTests.swift` | Yields **one `HTTPStreamChunk` per byte** on purpose — `URLSession.AsyncBytes` cannot report "nothing more buffered", so coalescing needs a size threshold (stalls slow bodies) or an injected clock. `Data` stores a 1-byte payload inline |
-Intro line (replacing "Where code actually lives at M0."):
-
-Where code actually lives after M1's provider slice. Only paths that exist today appear in
-backticks; planned targets are named in plain text with the milestone that creates them.
-
-Feature-map rows (replacing the single "Model catalog & registry" row):
-
-| Anthropic wire adapter | `Sources/ApusKitProviders/AnthropicMessagesAPI.swift` | `Tests/ApusKitProvidersTests/AnthropicMessagesAPITests.swift` | `POST <baseURL>/v1/messages` — the adapter appends the whole `v1/messages` path itself. The only adapter that gates tool-call deltas through a repair buffer (`:396`), so its deltas are *not* verbatim wire fragments |
+| Anthropic wire adapter | `Sources/ApusKitProviders/AnthropicMessagesAPI.swift` | `Tests/ApusKitProvidersTests/AnthropicMessagesAPITests.swift` | `POST <baseURL>/v1/messages` — the adapter appends the whole `v1/messages` path itself. The only adapter that gates tool-call deltas through a repair buffer (`:419`), so its deltas are *not* verbatim wire fragments |
 | OpenAI Chat Completions adapter | `Sources/ApusKitProviders/OpenAICompletionsAPI.swift` | `Tests/ApusKitProvidersTests/OpenAICompletionsAPITests.swift` | `POST <baseURL>/chat/completions` with `stream_options.include_usage`; `[DONE]` sentinel and index-keyed `tool_calls`. Works unchanged against any OpenAI-compatible baseURL |
 | OpenAI Responses adapter | `Sources/ApusKitProviders/OpenAIResponsesAPI.swift` | `Tests/ApusKitProvidersTests/OpenAIResponsesAPITests.swift` | `POST <baseURL>/responses`; named SSE event types (`response.output_item.added`, `response.function_call_arguments.delta`, …). Forwards argument deltas verbatim |
 | Built-in provider catalog | `Sources/ApusKitProviders/ProviderCatalog.swift` | `Tests/ApusKitProvidersTests/ProvidersTests.swift` | Six opt-in factories — `ModelProvider.anthropic`/`.openAI`/`.google`/`.openRouter`/`.groq`/`.ollama` (`:29`–`:160`). Nothing in `Sources` calls one: a vendor exists only once a consumer invokes a factory and registers the result (TRD §0) |
 | Registry resolution & cost | `Sources/ApusKitProviders/ProviderRegistry.swift` | `Tests/ApusKitProvidersTests/ProvidersTests.swift` | `resolve(model:transport:)` returns provider + implementation + `ProviderConnection` (`:78`); `cost(of:model:)` derives from `ModelInfo.pricing` via `Usage.cost(at:)` (`:103`, PROV-3). Failures are `ProviderRegistryError` + `@nonexhaustive` `Code` (ERR-2, `:9`). Still a value type with `mutating` registration |
 | Wire fixtures | `Tests/Fixtures` | — | Ten `.sse` transcripts in three per-implementation directories, plus `conformance-baseline.yml` — which nothing reads (see `gotchas.md`) |
 | Tool protocol & erasure | `Sources/ApusKitTools/Tool.swift`, `Sources/ApusKitTools/AnyAgentTool.swift` | `Tests/ApusKitToolsTests/ToolsTests.swift` | `AnyAgentTool` is where a thrown error becomes an error `ToolResult` (TOOL-2) |
+| Typed tool schema & validation | `Sources/ApusKitTools/AnyAgentTool.swift` | `Tests/ApusKitToolsTests/ToolsTests.swift` | `schema` is `T.Arguments.schema.schemaValue.value` captured once at `init` (`:35`) — a `JSONValue`, cheap; validation rebuilds `definition()` fresh inside the closure on every call (`:41`) because `Schema`'s `Sendable` conformance is unconfirmed. TOOL-1 violations short-circuit before `execute`, flattened to leaf messages (`:94`) |
+| Output truncation | `Sources/ApusKitTools/Truncation.swift` | `Tests/ApusKitToolsTests/TruncationTests.swift` | `headTruncate(_:offset:limit:maxBytes:) -> TruncatedText`, defaults 2000 lines / 50 000 bytes (TRUNC-1). The byte cap ends on a **line** boundary and reports `linesReturned`, which is the continuation step — not `limit` (see `gotchas.md`). Applied per text block by `AnyAgentTool.swift:114`, which records `truncated`/`originalLineCount`/`originalByteCount` in `details` |
+| Provider-neutral tool definitions | `Sources/ApusKitProviders/ToolDefinition.swift` | `Tests/ApusKitProvidersTests/ToolDefinitionTests.swift` | `ToolDefinition(name:description:parameters:)` with `parameters: JSONValue`; `LLMRequest.tools` defaults `[]` (`APIImplementation.swift:74`, `:82`). The in-module `JSONValue.jsonSerializationValue` (`:33`) erases to `Any` for the two dict-building adapters |
+| Tool definitions on the wire | `Sources/ApusKitProviders/AnthropicMessagesAPI.swift`, `Sources/ApusKitProviders/OpenAICompletionsAPI.swift`, `Sources/ApusKitProviders/OpenAIResponsesAPI.swift` | the three per-adapter suites in `Tests/ApusKitProvidersTests` | All three render `LLMRequest.tools` and omit the key entirely when empty: Anthropic `name`/`description`/`input_schema` (`:106`), Chat Completions nested `{"type":"function","function":{…}}` (`:314`), Responses flat `type`/`name`/`description`/`parameters` (`:141`) |
+| Registry → wire tool list | `Sources/ApusKitAgent/RunLoop.swift` | `Tests/ApusKitAgentTests/AgentTests.swift:459` | `:53` maps `ToolRegistry.allTools` into `[ToolDefinition]` **sorted by name** — `allTools` is dictionary-backed (`ToolRegistry.swift:26`), so an unsorted mapping makes the tools sent upstream flap from turn to turn |
 | Tool registry & results | `Sources/ApusKitTools/ToolRegistry.swift`, `Sources/ApusKitTools/ToolResult.swift`, `Sources/ApusKitTools/ToolSupport.swift` | `Tests/ApusKitToolsTests/ToolsTests.swift` | Registry is sealed — populate the value, don't conform |
 | Agent actor | `Sources/ApusKitAgent/Agent.swift` | `Tests/ApusKitAgentTests/AgentTests.swift` | Holds history, follow-up queue, running task, event continuation |
 | Run loop | `Sources/ApusKitAgent/RunLoop.swift` | `Tests/ApusKitAgentTests/AgentTests.swift` | 289 lines, every LOOP-n rule cited inline. The densest file in the repo |
@@ -87,6 +85,7 @@ Promote it to `Tests/Shared` the second time someone needs it.
 | `ThrowingTool` | struct | TOOL-2 — a thrown error becoming an error result |
 | `ConcurrencyProbe` / `ConcurrencyProbeTool` | actor / struct | LOOP-7 — proving tool calls overlap |
 | `FollowUpGate` / `GateTool` | actor / struct | LOOP-1 — holding a turn open while a message is queued |
+| `CancellationObservation` / `CancellationObservingTool` | actor / struct | F2.4 — a tool that reports one `onUpdate`, opens a `FollowUpGate`, then polls `ToolCancellationSignal` until it observes an abort |
 | `HangingProvider` | struct | abort/cancellation paths |
 | `RequestRecordingProvider` / `RequestLog` | struct / actor | asserting what the loop sent upstream |
 | `ThrowingStreamProvider` | struct | LOOP-3 — stream failure ending as `.error` |
@@ -101,7 +100,7 @@ an app consumer. See `Examples/consumers/mainactor-consumer/Package.swift`.
 
 ## Validation
 
-`swift test` (136 tests / 26 suites as of 2026-08-25). For one test see `commands.md` — the filter syntax has
+`swift test` (165 tests / 28 suites as of 2026-08-25). For one test see `commands.md` — the filter syntax has
 a trap.
 
 ## Open questions
