@@ -79,6 +79,33 @@ struct SSEParserTests {
     }
   }
 
+  @Test("the parser makes progress after an invalid UTF-8 line")
+  func recoversAfterInvalidUTF8() throws {
+    var parser = SSEParser()
+    let malformed: [UInt8] = Array("data: bad ".utf8) + [0xFF] + Array("\n\n".utf8)
+    #expect(throws: SSEParseError(code: .invalidUTF8, message: "SSE line is not valid UTF-8")) {
+      try parser.feed(malformed)
+    }
+    // The offending bytes must not stay buffered: a clean chunk after the
+    // failure parses normally instead of re-throwing the same error.
+    let events = try parser.feed(Array("data: after\n\n".utf8))
+    #expect(events == [SSEEvent(data: "after")])
+  }
+
+  @Test("events completed before an invalid UTF-8 line are not lost")
+  func eventsBeforeInvalidUTF8SurviveTheThrow() throws {
+    var parser = SSEParser()
+    let chunk: [UInt8] =
+      Array("data: good\n\ndata: ".utf8) + [0xFF] + Array("\n\n".utf8)
+    #expect(throws: SSEParseError(code: .invalidUTF8, message: "SSE line is not valid UTF-8")) {
+      try parser.feed(chunk)
+    }
+    // `good` completed before the bad line, so it is held and delivered by
+    // the next successful call rather than discarded with the error.
+    let events = try parser.feed(Array("data: after\n\n".utf8))
+    #expect(events == [SSEEvent(data: "good"), SSEEvent(data: "after")])
+  }
+
   /// The full reference stream used by ``splitAtEveryByteOffset(splitOffset:)``:
   /// two events, mixing CRLF and LF terminators, a comment line, and
   /// multi-line data — replayed split at every possible byte boundary.

@@ -4,8 +4,10 @@
 /// Feed fragments as they arrive from a streamed tool-call `arguments`
 /// payload via ``append(_:)``; call ``snapshot()`` at any point to get a
 /// syntactically valid JSON string representing what has been received so
-/// far: an open string is closed (dropping any dangling escape), a
-/// dangling number or `true`/`false`/`null` literal is completed or
+/// far: a string is closed and cut short of anything a JSON string may not
+/// carry (a dangling or unrecognized escape, a truncated `\uXXXX`, the lone
+/// half of a split surrogate pair, a raw control character), a dangling or
+/// malformed number or `true`/`false`/`null` literal is completed or
 /// dropped, a trailing key with no value or a trailing comma with nothing
 /// after it is dropped, and every open object or array is closed.
 ///
@@ -84,12 +86,24 @@ public struct PartialJSONAccumulator: Sendable {
         let start = i
         i += 1
         var closed = false
+        // Start of an escape the buffer ran out in the middle of. The token
+        // ends there — the incomplete escape is dropped — while `i` still
+        // advances past it, so the leftover bytes are never re-tokenized.
+        var truncatedEscape: Int?
         while i < n {
           let b = bytes[i]
           if b == 0x5C {  // backslash
-            guard i + 1 < n else { break }  // dangling escape at EOF
+            guard i + 1 < n else {  // dangling escape at EOF
+              truncatedEscape = i
+              i = n
+              break
+            }
             if bytes[i + 1] == 0x75 {  // \u needs 4 hex digits
-              guard i + 6 <= n else { break }
+              guard i + 6 <= n else {
+                truncatedEscape = i
+                i = n
+                break
+              }
               i += 6
             } else {
               i += 2
@@ -103,7 +117,9 @@ public struct PartialJSONAccumulator: Sendable {
           }
           i += 1
         }
-        tokens.append(RawToken(kind: .string, start: start, end: i, stringWasClosed: closed))
+        tokens.append(
+          RawToken(kind: .string, start: start, end: truncatedEscape ?? i, stringWasClosed: closed)
+        )
       case 0x2D, 0x30...0x39:  // '-' or a digit
         let start = i
         i += 1
@@ -181,6 +197,78 @@ public struct PartialJSONAccumulator: Sendable {
     return lastValidEnd
   }
 
+  private static func hexDigitValue(_ byte: UInt8) -> Int? {
+    switch byte {
+    case 0x30...0x39: return Int(byte) - 0x30
+    case 0x61...0x66: return Int(byte) - 0x61 + 10
+    case 0x41...0x46: return Int(byte) - 0x41 + 10
+    default: return nil
+    }
+  }
+
+  /// Decodes the four hex digits of the `\uXXXX` escape starting at `index`.
+  ///
+  /// The caller guarantees the six escape bytes are all present.
+  private static func hexEscapeValue(_ bytes: [UInt8], at index: Int) -> Int? {
+    var scalar = 0
+    for offset in 2..<6 {
+      guard let digit = hexDigitValue(bytes[index + offset]) else { return nil }
+      scalar = scalar << 4 | digit
+    }
+    return scalar
+  }
+
+  /// Whether `byte` may follow a backslash in a JSON string.
+  private static func isEscapableByte(_ byte: UInt8) -> Bool {
+    switch byte {
+    case 0x22, 0x5C, 0x2F: return true  // '"', '\', '/'
+    case 0x62, 0x66, 0x6E, 0x72, 0x74: return true  // 'b', 'f', 'n', 'r', 't'
+    default: return false
+    }
+  }
+
+  /// Finds where the body of a string can be cut so that closing it yields
+  /// valid JSON.
+  ///
+  /// Anything a JSON string may not contain ends the body: a raw control
+  /// character, an unrecognized escape, a truncated or non-hex `\uXXXX`, a
+  /// lone low surrogate, and a `\uD800`–`\uDBFF` high surrogate not followed
+  /// by its low half — which is what a prefix landing between the two halves
+  /// of a pair leaves behind. `start` is the index of the opening quote and
+  /// `bodyEnd` the exclusive end of the body, excluding any closing quote.
+  private static func safeStringBodyEnd(_ bytes: [UInt8], start: Int, bodyEnd: Int) -> Int {
+    var i = start + 1  // skip the opening quote
+    var pendingHighSurrogate: Int?  // a \uD800-\uDBFF escape awaiting its low half
+    while i < bodyEnd {
+      if bytes[i] < 0x20 { return pendingHighSurrogate ?? i }  // raw control character
+      guard bytes[i] == 0x5C else {  // backslash
+        if let high = pendingHighSurrogate { return high }
+        i += 1
+        continue
+      }
+      guard i + 1 < bodyEnd else { return pendingHighSurrogate ?? i }
+      guard bytes[i + 1] == 0x75 else {  // 'u'
+        if let high = pendingHighSurrogate { return high }
+        guard isEscapableByte(bytes[i + 1]) else { return i }
+        i += 2
+        continue
+      }
+      guard i + 6 <= bodyEnd, let scalar = hexEscapeValue(bytes, at: i) else {
+        return pendingHighSurrogate ?? i
+      }
+      if let high = pendingHighSurrogate {
+        guard (0xDC00...0xDFFF).contains(scalar) else { return high }
+        pendingHighSurrogate = nil
+      } else if (0xD800...0xDBFF).contains(scalar) {
+        pendingHighSurrogate = i
+      } else if (0xDC00...0xDFFF).contains(scalar) {
+        return i  // low surrogate with no high half before it
+      }
+      i += 6
+    }
+    return pendingHighSurrogate ?? bodyEnd
+  }
+
   private static let literalCandidates: [[UInt8]] = [
     Array("true".utf8), Array("false".utf8), Array("null".utf8),
   ]
@@ -193,7 +281,11 @@ public struct PartialJSONAccumulator: Sendable {
   )? {
     switch token.kind {
     case .string:
-      return (token.start..<token.end, token.stringWasClosed ? [] : [0x22])
+      // The closing quote is re-injected rather than copied, so a body cut
+      // short of it still ends in one.
+      let bodyEnd = token.stringWasClosed ? token.end - 1 : token.end
+      let safeEnd = safeStringBodyEnd(bytes, start: token.start, bodyEnd: bodyEnd)
+      return (token.start..<safeEnd, [0x22])
     case .number:
       guard let repairedEnd = repairedNumberEnd(bytes, start: token.start, end: token.end) else {
         return nil
@@ -228,14 +320,8 @@ public struct PartialJSONAccumulator: Sendable {
   /// open container is closed, completing or dropping a dangling trailing
   /// token as needed.
   private static func repair(_ bytes: [UInt8]) -> [UInt8] {
-    let allTokens = tokenize(bytes)
-    guard !allTokens.isEmpty else { return Array("null".utf8) }
-
-    var usableTokens = allTokens
-    let lastPlan = emissionPlan(for: allTokens[allTokens.count - 1], bytes: bytes)
-    if lastPlan == nil {
-      usableTokens.removeLast()
-    }
+    let tokens = tokenize(bytes)
+    guard !tokens.isEmpty else { return Array("null".utf8) }
 
     var output: [UInt8] = []
     var committed: [UInt8] = []
@@ -256,16 +342,13 @@ public struct PartialJSONAccumulator: Sendable {
       }
     }
 
-    tokenLoop: for (index, token) in usableTokens.enumerated() {
-      let range: Range<Int>
-      let suffix: [UInt8]
-      if index == usableTokens.count - 1, let plan = lastPlan {
-        range = plan.range
-        suffix = plan.suffix
-      } else {
-        range = token.start..<token.end
-        suffix = []
-      }
+    tokenLoop: for token in tokens {
+      // Every token is emitted through its plan, not just the trailing one:
+      // a truncated string is closed wherever it sits, and a token with no
+      // valid prefix at all ends the walk at the last safe point.
+      guard let plan = emissionPlan(for: token, bytes: bytes) else { break tokenLoop }
+      let range = plan.range
+      let suffix = plan.suffix
 
       switch (expect, token.kind) {
       case (.topLevelStart, .string), (.topLevelStart, .number), (.topLevelStart, .literal):

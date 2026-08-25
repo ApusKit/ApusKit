@@ -31,19 +31,7 @@ public struct URLSessionTransport: StreamingHTTPTransport {
             continuation.finish(throwing: error)
             return
           }
-
-          var buffer: [UInt8] = []
-          buffer.reserveCapacity(Self.chunkFlushThreshold)
-          for try await byte in byteStream {
-            buffer.append(byte)
-            if buffer.count >= Self.chunkFlushThreshold {
-              continuation.yield(HTTPStreamChunk(data: Data(buffer)))
-              buffer.removeAll(keepingCapacity: true)
-            }
-          }
-          if !buffer.isEmpty {
-            continuation.yield(HTTPStreamChunk(data: Data(buffer)))
-          }
+          try await Self.forwardBytes(byteStream, to: continuation)
           continuation.finish()
         } catch {
           continuation.finish(throwing: error)
@@ -53,9 +41,23 @@ public struct URLSessionTransport: StreamingHTTPTransport {
     }
   }
 
-  /// Bytes are flushed as a chunk once this many have arrived, so the
-  /// stream never buffers the whole response body before yielding.
-  private static let chunkFlushThreshold = 4096
+  /// Yields every byte of `bytes` onward as soon as it arrives, never
+  /// holding one back behind a size threshold.
+  ///
+  /// Withholding bytes until a buffer filled would stall a slow, small
+  /// response — an SSE body that dribbles in arrives at the consumer only
+  /// when the connection closes — so a chunk is emitted per byte read.
+  /// `Data` stores a payload this small inline, so no heap allocation is
+  /// incurred per chunk. Package-access so tests can drive it from a
+  /// hand-fed byte sequence with no network (`ASM-3`, `TEST-2`).
+  package static func forwardBytes<Bytes: AsyncSequence>(
+    _ bytes: Bytes,
+    to continuation: AsyncThrowingStream<HTTPStreamChunk, any Error>.Continuation
+  ) async throws where Bytes.Element == UInt8 {
+    for try await byte in bytes {
+      continuation.yield(HTTPStreamChunk(data: Data([byte])))
+    }
+  }
 
   /// Builds the `URLRequest` for `request`. Package-access so tests can
   /// exercise request-building with no network (`ASM-3`).

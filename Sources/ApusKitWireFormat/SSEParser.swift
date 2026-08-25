@@ -64,11 +64,18 @@ public struct SSEParser: Sendable {
   private var eventID: String?
   private var dataLines: [String] = []
   private var sawContent = false
+  private var pendingEvents: [SSEEvent] = []
 
   /// Creates a parser with no buffered state.
   public init() {}
 
   /// Feeds a chunk of bytes, returning any complete events it produced.
+  ///
+  /// A malformed line is consumed and skipped before the error is thrown,
+  /// so the parser always makes progress: the next call resumes at the
+  /// line after the bad one rather than re-reporting it forever. Events
+  /// completed before the failure are not lost either — they are held and
+  /// returned by the next successful call.
   ///
   /// - Parameter bytes: The next chunk of the response body, in the order
   ///   it was received. Chunk boundaries may fall anywhere.
@@ -79,15 +86,22 @@ public struct SSEParser: Sendable {
   public mutating func feed(_ bytes: some Sequence<UInt8>) throws(SSEParseError) -> [SSEEvent] {
     buffer.append(contentsOf: bytes)
 
-    var events: [SSEEvent] = []
     while let bounds = nextLineBounds() {
-      let line = buffer[buffer.startIndex..<bounds.lineEnd]
-      if let event = try processLine(line) {
-        events.append(event)
+      // The consumed line leaves the buffer even if `processLine` throws,
+      // so a single malformed line cannot wedge the parser (R1).
+      defer {
+        buffer.removeFirst(bounds.nextStart)
+        searchIndex = 0
       }
-      buffer.removeFirst(bounds.nextStart)
-      searchIndex = 0
+      // The slice stays a temporary so it is released before `defer`
+      // mutates `buffer`, avoiding a copy-on-write copy per line.
+      if let event = try processLine(buffer[buffer.startIndex..<bounds.lineEnd]) {
+        pendingEvents.append(event)
+      }
     }
+
+    let events = pendingEvents
+    pendingEvents = []
     return events
   }
 
