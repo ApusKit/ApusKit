@@ -126,7 +126,25 @@ extension OpenAIResponsesAPI {
     if let systemPrompt = request.systemPrompt {
       body["instructions"] = systemPrompt
     }
+    // No tools means no `tools` key at all — an empty array would be an
+    // extra, provider-visible difference from a request that never
+    // mentioned tools (R5).
+    if !request.tools.isEmpty {
+      body["tools"] = request.tools.map(renderToolDefinition)
+    }
     return body
+  }
+
+  /// Renders one provider-neutral `ToolDefinition` in the Responses API's
+  /// flat function shape — `type`/`name`/`description`/`parameters` at the
+  /// top level, unlike Chat Completions' nested `function` object (R5).
+  static func renderToolDefinition(_ tool: ToolDefinition) -> [String: Any] {
+    [
+      "type": "function",
+      "name": tool.name,
+      "description": tool.description,
+      "parameters": tool.parameters.jsonSerializationValue,
+    ]
   }
 
   /// Renders one `LLMRequestMessage` as the Responses API's `input` items.

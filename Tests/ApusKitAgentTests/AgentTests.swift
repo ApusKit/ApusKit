@@ -456,26 +456,41 @@ struct AgentGateTests {
     #expect(final.content.isEmpty)
   }
 
-  @Test("R6: registered tools reach LLMRequest.tools, sorted by name")
+  @Test("R6: registered tools reach LLMRequest.tools on every turn, sorted by name")
   func registeredToolsReachLLMRequestTools() async throws {
+    // R6 says "every turn", so the script spans a tool-call turn AND the
+    // follow-up turn it provokes, plus a second run() through the outer
+    // loop. A single text-only turn would leave the "every turn" half
+    // unasserted: sending the definitions only on a run's first turn would
+    // pass.
     let log = RequestLog()
-    let provider = RequestRecordingProvider(scripts: [ScriptedTurn.text("all done")], log: log)
+    let provider = RequestRecordingProvider(
+      scripts: [
+        ScriptedTurn.toolCall(id: "call_1", name: "z_tool", argumentsJSON: #"{"value":"hi"}"#),
+        ScriptedTurn.text("all done"),
+        ScriptedTurn.text("still done"),
+      ],
+      log: log
+    )
     let zTool = AnyAgentTool(RecordingTool(name: "z_tool"))
     let aTool = AnyAgentTool(ThrowingTool(name: "a_tool"))
     let agent = makeAgent(provider: provider, tools: [zTool, aTool])
 
     _ = await agent.run(UserMessage(content: [.text("hello")]))
-
-    let requests = await log.requests
-    let request = try #require(requests.first)
+    _ = await agent.run(UserMessage(content: [.text("again")]))
 
     // ToolRegistry.allTools' order is nondeterministic — without sorting
     // by name, this assertion would flap between runs.
-    #expect(
-      request.tools == [
-        ToolDefinition(name: aTool.name, description: aTool.description, parameters: aTool.schema),
-        ToolDefinition(name: zTool.name, description: zTool.description, parameters: zTool.schema),
-      ])
+    let expected = [
+      ToolDefinition(name: aTool.name, description: aTool.description, parameters: aTool.schema),
+      ToolDefinition(name: zTool.name, description: zTool.description, parameters: zTool.schema),
+    ]
+
+    let requests = await log.requests
+    #expect(requests.count == 3)
+    for (index, request) in requests.enumerated() {
+      #expect(request.tools == expected, "turn \(index) dropped the tool definitions")
+    }
   }
 
   @Test(

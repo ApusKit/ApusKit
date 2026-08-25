@@ -10,6 +10,7 @@ import ApusKitCore
 import ApusKitProviders
 import Foundation
 import InlineSnapshotTesting
+import JSONSchema
 import TestSupport
 import Testing
 
@@ -200,6 +201,76 @@ struct OpenAIResponsesAPIRequestShapeTests {
     #expect(input[3]["type"] as? String == "function_call_output")
     #expect(input[3]["call_id"] as? String == "call_abc123")
     #expect(input[3]["output"] as? String == "72F and sunny")
+  }
+
+  @Test("renders LLMRequest.tools as flat type:function objects (R5)")
+  func requestBodyRendersTools() async throws {
+    let log = RequestSpyLog()
+    let transcript = try Fixtures.transcript("text-and-tool-call.sse", for: "openai-responses")
+    let connection = connection(transport: FixtureTransport(body: transcript, log: log))
+    let request = LLMRequest(
+      model: "gpt-5",
+      messages: [],
+      tools: [
+        ToolDefinition(
+          name: "get_weather",
+          description: "Look up the current weather for a city.",
+          parameters: [
+            "type": "object",
+            "properties": ["location": ["type": "string"]],
+            "required": ["location"],
+          ]
+        )
+      ]
+    )
+
+    _ = try await collect(OpenAIResponsesAPI().stream(request: request, connection: connection))
+
+    let httpRequest = try #require(await log.requests.first)
+    let body = try #require(httpRequest.body)
+    let json = try #require(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+
+    let tools = try #require(json["tools"] as? [[String: Any]])
+    #expect(tools.count == 1)
+    #expect(tools[0]["type"] as? String == "function")
+    // The Responses API keeps the tool flat: no nested `function` object,
+    // which is the Chat Completions shape and a different wire contract.
+    #expect(tools[0]["function"] == nil)
+    #expect(tools[0]["name"] as? String == "get_weather")
+    #expect(tools[0]["description"] as? String == "Look up the current weather for a city.")
+    let parameters = try #require(tools[0]["parameters"] as? [String: Any])
+    #expect(parameters["type"] as? String == "object")
+    let properties = try #require(parameters["properties"] as? [String: Any])
+    let location = try #require(properties["location"] as? [String: Any])
+    #expect(location["type"] as? String == "string")
+    #expect(parameters["required"] as? [String] == ["location"])
+  }
+
+  @Test("an empty LLMRequest.tools omits the tools key entirely (R5)")
+  func emptyToolsOmitsToolsKey() async throws {
+    let transcript = try Fixtures.transcript("text-and-tool-call.sse", for: "openai-responses")
+
+    let messages: [LLMRequestMessage] = [.user(UserMessage(content: [.text("hi")]))]
+
+    func sentRequest(_ request: LLMRequest) async throws -> HTTPStreamRequest {
+      let log = RequestSpyLog()
+      let connection = connection(transport: FixtureTransport(body: transcript, log: log))
+      _ = try await collect(OpenAIResponsesAPI().stream(request: request, connection: connection))
+      return try #require(await log.requests.first)
+    }
+
+    let plain = try await sentRequest(LLMRequest(model: "gpt-5", messages: messages))
+    let explicitlyEmpty = try await sentRequest(
+      LLMRequest(model: "gpt-5", messages: messages, tools: []))
+
+    // An empty `tools` array must be byte-identical to a request that never
+    // carried tools — a bare key-absence check alone would miss a mutant
+    // that renders `"tools": []` instead of omitting the key. The body is
+    // serialized with `.sortedKeys`, so byte equality is meaningful here.
+    #expect(explicitlyEmpty == plain)
+    let body = try #require(explicitlyEmpty.body)
+    let json = try #require(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+    #expect(json["tools"] == nil)
   }
 
   @Test("ignores LLMRequest.cacheBreakpoints without error (PROV-2)")

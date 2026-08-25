@@ -1,6 +1,7 @@
 public import ApusKitCore
 internal import ApusKitWireFormat
 internal import Foundation
+internal import JSONSchema
 
 /// Speaks the OpenAI Chat Completions streaming wire protocol.
 ///
@@ -297,11 +298,26 @@ extension OpenAICompletionsAPI {
       model: request.model,
       messages: Self.makeMessages(for: request),
       stream: true,
-      streamOptions: RequestBody.StreamOptions(includeUsage: true)
+      streamOptions: RequestBody.StreamOptions(includeUsage: true),
+      // Chat Completions rejects an empty `tools` array, and a request
+      // with no tools must be indistinguishable from one that never
+      // mentioned them: `nil` omits the key entirely (R5).
+      tools: request.tools.isEmpty ? nil : request.tools.map(Self.makeTool)
     )
     let bodyData = try JSONEncoder().encode(body)
 
     return HTTPStreamRequest(url: url, method: "POST", headers: headers, body: bodyData)
+  }
+
+  /// Renders one provider-neutral `ToolDefinition` in the Chat
+  /// Completions shape: `{"type": "function", "function": {...}}` (R5).
+  private static func makeTool(_ tool: ToolDefinition) -> RequestBody.Tool {
+    RequestBody.Tool(
+      function: RequestBody.Tool.Function(
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.parameters
+      ))
   }
 
   private static func makeMessages(for request: LLMRequest) -> [RequestBody.Message] {
@@ -370,9 +386,10 @@ private struct RequestBody: Encodable {
   var messages: [Message]
   var stream: Bool
   var streamOptions: StreamOptions
+  var tools: [Tool]?
 
   private enum CodingKeys: String, CodingKey {
-    case model, messages, stream
+    case model, messages, stream, tools
     case streamOptions = "stream_options"
   }
 
@@ -442,6 +459,17 @@ private struct RequestBody: Encodable {
 
   struct ImageURL: Encodable {
     var url: String
+  }
+
+  struct Tool: Encodable {
+    var type = "function"
+    var function: Function
+
+    struct Function: Encodable {
+      var name: String
+      var description: String
+      var parameters: JSONValue
+    }
   }
 
   struct ToolCall: Encodable {

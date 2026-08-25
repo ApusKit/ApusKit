@@ -15,8 +15,13 @@ struct EchoArguments: Decodable, Sendable {
   var text: String
 }
 
+/// Arguments carrying a constraint (`count >= 10`) that only schema
+/// validation can catch: `{"count":5}` decodes cleanly through
+/// `JSONDecoder`, so a test using it fails unless `TOOL-1` validation
+/// actually runs.
 @Schemable
 struct CountArguments: Decodable, Sendable {
+  @NumberOptions(.minimum(10))
   var count: Int
 }
 
@@ -170,6 +175,35 @@ struct AnyAgentToolTests {
     let tracker = CallTracker()
     let tool = AnyAgentTool(CountingTool(tracker: tracker))
 
+    // `{"count":5}` is well-formed JSON that decodes into CountArguments
+    // without complaint; only the derived schema's `minimum` rejects it,
+    // so this fails outright if TOOL-1 validation is skipped.
+    let result = await tool.execute(
+      toolCallID: "call_1",
+      argumentsJSON: #"{"count":5}"#,
+      signal: ToolCancellationSignal(),
+      onUpdate: { _ in }
+    )
+
+    guard case .string(let message)? = result.details["error"] else {
+      Issue.record("expected an \"error\" detail, got \(result.details)")
+      return
+    }
+    // The error names the violation, not just "something went wrong":
+    // the offending property and the constraint it broke.
+    #expect(message.contains("count"))
+    #expect(message.contains("minimum"))
+    #expect(result.content == [.text("Tool \"count\" received invalid arguments: \(message)")])
+
+    let callCount = await tracker.callCount
+    #expect(callCount == 0)
+  }
+
+  @Test("TOOL-1: arguments of the wrong JSON type never reach execute either")
+  func mistypedArgumentsNeverReachExecute() async {
+    let tracker = CallTracker()
+    let tool = AnyAgentTool(CountingTool(tracker: tracker))
+
     let result = await tool.execute(
       toolCallID: "call_1",
       argumentsJSON: #"{"count":"not-a-number"}"#,
@@ -180,6 +214,24 @@ struct AnyAgentToolTests {
     #expect(result.details["error"] != nil)
     let callCount = await tracker.callCount
     #expect(callCount == 0)
+  }
+
+  @Test("TOOL-1: arguments satisfying the schema do reach execute")
+  func validArgumentsReachExecute() async {
+    let tracker = CallTracker()
+    let tool = AnyAgentTool(CountingTool(tracker: tracker))
+
+    let result = await tool.execute(
+      toolCallID: "call_1",
+      argumentsJSON: #"{"count":42}"#,
+      signal: ToolCancellationSignal(),
+      onUpdate: { _ in }
+    )
+
+    #expect(result.content == [.text("42")])
+    #expect(result.details["error"] == nil)
+    let callCount = await tracker.callCount
+    #expect(callCount == 1)
   }
 
   @Test("TRUNC-1: oversized output from execute is head-truncated, original size recorded")

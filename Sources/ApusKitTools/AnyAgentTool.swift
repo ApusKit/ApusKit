@@ -40,7 +40,7 @@ public struct AnyAgentTool: Sendable {
         // a stored `Schema` value.
         let validation = try T.Arguments.schema.definition().validate(instance: argumentsJSON)
         guard validation.isValid else {
-          let reasons = (validation.errors ?? []).map(\.message).joined(separator: "; ")
+          let reasons = AnyAgentTool.violations(in: validation.errors ?? []).joined(separator: "; ")
           let message =
             reasons.isEmpty ? "arguments do not satisfy the tool's schema" : reasons
           return ToolResult(
@@ -81,6 +81,24 @@ public struct AnyAgentTool: Sendable {
     onUpdate: @Sendable (ToolUpdate) -> Void
   ) async -> ToolResult {
     await run(toolCallID, argumentsJSON, signal, onUpdate)
+  }
+
+  /// Flattens a validation failure into one human-readable line per
+  /// violated keyword, so the error `ToolResult` names what was wrong
+  /// (`TOOL-1`).
+  ///
+  /// Nested errors are followed to their leaves: a failing property
+  /// reports as the enclosing `"Validation failed for keyword
+  /// 'properties'"` whose real cause ("`#/count`: … is below minimum …")
+  /// only appears one level down.
+  private static func violations(in errors: [ValidationError]) -> [String] {
+    errors.flatMap { error -> [String] in
+      let nested = violations(in: error.errors ?? [])
+      guard nested.isEmpty else { return nested }
+      guard !error.message.isEmpty else { return [] }
+      let location = error.instanceLocation.description
+      return location == "#" ? [error.message] : ["\(location): \(error.message)"]
+    }
   }
 
   /// Head-truncates every text block in `result.content` (`TRUNC-1`),

@@ -9,6 +9,7 @@ import ApusKitCore
 import ApusKitProviders
 import Foundation
 import InlineSnapshotTesting
+import JSONSchema
 import TestSupport
 import Testing
 
@@ -151,6 +152,79 @@ struct OpenAICompletionsAPIRequestShapeTests {
     #expect(messages[3]["role"] as? String == "tool")
     #expect(messages[3]["content"] as? String == "72F and sunny")
     #expect(messages[3]["tool_call_id"] as? String == "call_1")
+  }
+
+  @Test("renders LLMRequest.tools as type:function objects with a nested function (R5)")
+  func requestBodyRendersTools() throws {
+    // Force-unwrap justified: fixed, valid URL literal.
+    // swift-format-ignore: NeverForceUnwrap
+    let baseURL = URL(string: "https://api.openai.com/v1")!
+    let connection = ProviderConnection(
+      baseURL: baseURL, auth: .bearer("sk-test"), transport: NeverCalledTransport())
+    let request = LLMRequest(
+      model: "gpt-4o-mini",
+      messages: [],
+      tools: [
+        ToolDefinition(
+          name: "get_weather",
+          description: "Look up the current weather for a city.",
+          parameters: [
+            "type": "object",
+            "properties": ["location": ["type": "string"]],
+            "required": ["location"],
+          ]
+        )
+      ]
+    )
+
+    let httpRequest = try OpenAICompletionsAPI.makeHTTPRequest(for: request, connection: connection)
+    let body = try #require(httpRequest.body)
+    let json = try #require(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+
+    let tools = try #require(json["tools"] as? [[String: Any]])
+    #expect(tools.count == 1)
+    #expect(tools[0]["type"] as? String == "function")
+    // Chat Completions nests the tool under a `function` object — a flat
+    // name/description/parameters (the Responses shape) is a different
+    // wire contract and must not appear here.
+    #expect(tools[0]["name"] == nil)
+    let function = try #require(tools[0]["function"] as? [String: Any])
+    #expect(function["name"] as? String == "get_weather")
+    #expect(function["description"] as? String == "Look up the current weather for a city.")
+    let parameters = try #require(function["parameters"] as? [String: Any])
+    #expect(parameters["type"] as? String == "object")
+    let properties = try #require(parameters["properties"] as? [String: Any])
+    let location = try #require(properties["location"] as? [String: Any])
+    #expect(location["type"] as? String == "string")
+    #expect(parameters["required"] as? [String] == ["location"])
+  }
+
+  @Test("an empty LLMRequest.tools omits the tools key entirely (R5)")
+  func emptyToolsOmitsToolsKey() throws {
+    // Force-unwrap justified: fixed, valid URL literal.
+    // swift-format-ignore: NeverForceUnwrap
+    let baseURL = URL(string: "https://api.openai.com/v1")!
+    let connection = ProviderConnection(
+      baseURL: baseURL, auth: .bearer("sk-test"), transport: NeverCalledTransport())
+    let messages: [LLMRequestMessage] = [.user(UserMessage(content: [.text("hi")]))]
+
+    let plain = try OpenAICompletionsAPI.makeHTTPRequest(
+      for: LLMRequest(model: "gpt-4o-mini", messages: messages), connection: connection)
+    let explicitlyEmpty = try OpenAICompletionsAPI.makeHTTPRequest(
+      for: LLMRequest(model: "gpt-4o-mini", messages: messages, tools: []), connection: connection)
+
+    // An empty `tools` array must be indistinguishable from a request that
+    // never mentioned tools at all — a bare key-absence check alone would
+    // miss a mutant that renders `"tools": []` instead of omitting it.
+    #expect(explicitlyEmpty.url == plain.url)
+    #expect(explicitlyEmpty.method == plain.method)
+    #expect(explicitlyEmpty.headers == plain.headers)
+    let plainJSON = try JSONSerialization.jsonObject(with: #require(plain.body))
+    let emptyJSON = try JSONSerialization.jsonObject(with: #require(explicitlyEmpty.body))
+    #expect(
+      NSDictionary(dictionary: try #require(plainJSON as? [String: Any]))
+        == NSDictionary(dictionary: try #require(emptyJSON as? [String: Any])))
+    #expect(try #require(emptyJSON as? [String: Any])["tools"] == nil)
   }
 
   @Test("ignores LLMRequest.cacheBreakpoints without error (PROV-2)")
