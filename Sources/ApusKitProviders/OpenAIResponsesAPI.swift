@@ -26,14 +26,20 @@ public struct OpenAIResponsesAPI: APIImplementation {
 
   /// Streams a single conversational turn as unified `StreamEvent`s.
   ///
-  /// A transport failure or a malformed/incomplete response is surfaced as
-  /// a terminal `.error(StreamError)` event rather than a thrown error, so
-  /// every stream this produces satisfies `PROV-1`.
+  /// Per `PROV-1`, exactly one `.start` is yielded first and exactly one
+  /// terminal `.done` or `.error` is yielded last. A transport failure or
+  /// a malformed/incomplete response is surfaced as a terminal
+  /// `.error(StreamError)` event rather than a thrown error.
   public func stream(request: LLMRequest, connection: ProviderConnection) -> AsyncThrowingStream<
     StreamEvent, any Error
   > {
     AsyncThrowingStream { continuation in
       let task = Task {
+        // `.start` is yielded unconditionally, before anything can fail,
+        // so PROV-1's "exactly one `.start` first" holds on every exit
+        // path — including a transport failure and a `response.failed`
+        // event that arrives without a preceding `response.created`.
+        continuation.yield(.start)
         do {
           let httpRequest = Self.makeHTTPRequest(for: request, connection: connection)
           var parser = SSEParser()
@@ -239,7 +245,8 @@ extension OpenAIResponsesAPI {
 
     switch kind {
     case "response.created":
-      continuation.yield(.start)
+      // `.start` was already yielded by `stream(request:connection:)`;
+      // this event carries nothing else the unified stream represents.
       return false
 
     case "response.output_item.added":

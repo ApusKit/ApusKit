@@ -212,6 +212,28 @@ struct ProviderCostTests {
   }
 }
 
+/// Streams one turn for `model` through the real `APIImplementation`
+/// named by `provider.api` and returns the URL the transport was actually
+/// asked to POST to.
+private func postedURL(for provider: ModelProvider, model: String) async throws -> String {
+  var registry = ProviderRegistry()
+  registry.register(provider)
+  registry.register(AnthropicMessagesAPI())
+  registry.register(OpenAICompletionsAPI())
+  registry.register(OpenAIResponsesAPI())
+
+  let log = RequestSpyLog()
+  let resolved = try registry.resolve(
+    model: model, transport: FixtureTransport(body: Data(), log: log))
+  let stream = resolved.implementation.stream(
+    request: LLMRequest(model: model, messages: []), connection: resolved.connection)
+  for try await _ in stream {}
+
+  let requests = await log.requests
+  let request = try #require(requests.first)
+  return request.url.absoluteString
+}
+
 @Suite("Built-in provider catalog (R4)")
 struct ProviderCatalogTests {
   @Test("anthropic() speaks anthropic-messages, authenticates with an API key, and lists models")
@@ -282,6 +304,47 @@ struct ProviderCatalogTests {
     #expect(provider.baseURL == customURL)
     #expect(provider.auth == .none)
     #expect(provider.models.isEmpty)
+  }
+
+  @Test("every catalog baseURL composes into its vendor's real endpoint through its own adapter")
+  func catalogBaseURLsComposeIntoRealEndpoints() async throws {
+    // A catalog entry is only usable if its `baseURL` lines up with the
+    // path its `APIImplementation` appends: `AnthropicMessagesAPI` adds
+    // `v1/messages`, the OpenAI-shaped adapters add version-less paths.
+    // Asserting the URL actually POSTed catches a doubled (or missing)
+    // version segment that no field-by-field check would see.
+    let ollamaModel = ModelInfo(
+      id: "llama3.2",
+      contextWindow: 128_000,
+      pricing: Pricing(inputPerMillion: 0, outputPerMillion: 0))
+    let cases: [(provider: ModelProvider, model: String, expected: String)] = [
+      (
+        ModelProvider.anthropic(apiKey: "k"), "claude-sonnet-4-5-20250929",
+        "https://api.anthropic.com/v1/messages"
+      ),
+      (ModelProvider.openAI(apiKey: "k"), "gpt-5", "https://api.openai.com/v1/responses"),
+      (
+        ModelProvider.google(apiKey: "k"), "gemini-2.5-flash",
+        "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+      ),
+      (
+        ModelProvider.openRouter(apiKey: "k"), "openai/gpt-5",
+        "https://openrouter.ai/api/v1/chat/completions"
+      ),
+      (
+        ModelProvider.groq(apiKey: "k"), "llama-3.3-70b-versatile",
+        "https://api.groq.com/openai/v1/chat/completions"
+      ),
+      (
+        ModelProvider.ollama(models: [ollamaModel]), "llama3.2",
+        "http://localhost:11434/v1/chat/completions"
+      ),
+    ]
+
+    for testCase in cases {
+      let posted = try await postedURL(for: testCase.provider, model: testCase.model)
+      #expect(posted == testCase.expected)
+    }
   }
 
   @Test("constructing a catalog provider registers nothing by itself (TRD §0)")

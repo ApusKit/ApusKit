@@ -233,13 +233,16 @@ struct AnthropicMessagesAPITests {
     let transcript = try Fixtures.transcript("tool-call.sse", for: "anthropic-messages")
     let events = try await collectEvents(chunks: [transcript])
 
+    // The provider chopped its first fragment mid-key (`{"loc`); only the
+    // `{` the accumulator has committed is forwarded, and the rest of the
+    // key rides along with the next delta.
     assertInlineSnapshot(of: dump(events), as: .lines) {
       """
       start
       textDelta(0, "Let me check that.")
       toolCallStart(1, id: "toolu_01", name: "get_weather")
-      toolCallDelta(1, "{\\"loc")
-      toolCallDelta(1, "ation\\":\\"Paris")
+      toolCallDelta(1, "{")
+      toolCallDelta(1, "\\"location\\":\\"Paris")
       toolCallDelta(1, "\\"}")
       toolCallEnd(1)
       done(Usage(inputTokens: 40, outputTokens: 30, cacheReadTokens: 0, cacheWriteTokens: 0), toolUse)
@@ -258,6 +261,48 @@ struct AnthropicMessagesAPITests {
   @Test("a tool-call turn survives a chunk split at every byte offset")
   func toolCallSurvivesEverySplit() async throws {
     let transcript = try Fixtures.transcript("tool-call.sse", for: "anthropic-messages")
+    let reference = try await collectEvents(chunks: [transcript])
+    assertPROV1Shape(reference)
+
+    for offset in 0...transcript.count {
+      let events = try await collectEvents(chunks: transcript.splitOnce(at: offset))
+      #expect(events == reference, "split at byte offset \(offset) diverged from the whole replay")
+    }
+  }
+
+  @Test("a stream cut mid-arguments still yields tool-call arguments that parse")
+  func toolCallTruncatedMidArgumentsRepairsToValidJSON() async throws {
+    let transcript = try Fixtures.transcript("tool-call-truncated.sse", for: "anthropic-messages")
+    let events = try await collectEvents(chunks: [transcript])
+
+    assertPROV1Shape(events)
+    // The provider's last fragment was a lone `\` — the start of an
+    // escape whose remainder never arrived. It is held back rather than
+    // forwarded, and closing the block through the accumulator completes
+    // the string and the object instead.
+    assertInlineSnapshot(of: dump(events), as: .lines) {
+      """
+      start
+      toolCallStart(0, id: "toolu_02", name: "write_note")
+      toolCallDelta(0, "{\\"note\\":\\"line one")
+      toolCallDelta(0, "\\"}")
+      toolCallEnd(0)
+      error(decoding, "provider stream ended before a terminal event")
+      """
+    }
+
+    let argumentsJSON = events.compactMap { event -> String? in
+      if case .toolCallDelta(_, let delta) = event { return delta }
+      return nil
+    }.joined()
+    let decoded = try #require(
+      try JSONSerialization.jsonObject(with: Data(argumentsJSON.utf8)) as? [String: Any])
+    #expect(decoded["note"] as? String == "line one")
+  }
+
+  @Test("a stream cut mid-arguments survives a chunk split at every byte offset")
+  func toolCallTruncatedSurvivesEverySplit() async throws {
+    let transcript = try Fixtures.transcript("tool-call-truncated.sse", for: "anthropic-messages")
     let reference = try await collectEvents(chunks: [transcript])
     assertPROV1Shape(reference)
 
@@ -295,6 +340,54 @@ struct AnthropicMessagesAPITests {
   }
 
   // MARK: - Malformed stream
+
+  @Test("a transport failure still yields .start first, then exactly one terminal .error")
+  func transportFailureStillStartsTheStream() async throws {
+    let api = AnthropicMessagesAPI()
+    let connection = ProviderConnection(
+      baseURL: exampleBaseURL,
+      auth: .apiKey("test-key"),
+      transport: FixtureTransport(
+        failing: StreamError(code: .transport, message: "HTTP 429"))
+    )
+    var events: [StreamEvent] = []
+    for try await event in api.stream(
+      request: LLMRequest(model: "claude-3-5-sonnet-20241022", messages: []),
+      connection: connection
+    ) {
+      events.append(event)
+    }
+
+    assertPROV1Shape(events)
+    assertInlineSnapshot(of: dump(events), as: .lines) {
+      """
+      start
+      error(transport, "HTTP 429")
+      """
+    }
+  }
+
+  @Test("an error event with no preceding message_start still yields .start first")
+  func providerErrorWithoutMessageStartStillStartsTheStream() async throws {
+    let events = try await collectEvents(
+      chunks: [
+        Data(
+          """
+          event: error
+          data: {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}
+
+
+          """.utf8)
+      ])
+
+    assertPROV1Shape(events)
+    assertInlineSnapshot(of: dump(events), as: .lines) {
+      """
+      start
+      error(provider, "Overloaded")
+      """
+    }
+  }
 
   @Test("a byte stream that ends without a terminal event still yields exactly one terminal .error")
   func trunactedStreamYieldsTerminalError() async throws {

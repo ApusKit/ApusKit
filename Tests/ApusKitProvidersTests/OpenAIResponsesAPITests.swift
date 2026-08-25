@@ -100,6 +100,32 @@ private func describe(_ event: StreamEvent) -> String {
   }
 }
 
+/// Asserts the `PROV-1` shape: exactly one `.start` first, exactly one
+/// terminal `.done`/`.error` last.
+private func assertPROV1Shape(_ events: [StreamEvent]) {
+  #expect(events.first == .start)
+  #expect(
+    events.filter {
+      if case .start = $0 { return true }
+      return false
+    }.count == 1
+  )
+  switch events.last {
+  case .done, .error:
+    break
+  default:
+    Issue.record("expected a terminal .done or .error last, got \(String(describing: events.last))")
+  }
+  #expect(
+    events.filter {
+      switch $0 {
+      case .done, .error: return true
+      default: return false
+      }
+    }.count == 1
+  )
+}
+
 @Suite("OpenAIResponsesAPI request shape")
 struct OpenAIResponsesAPIRequestShapeTests {
   @Test(
@@ -221,6 +247,8 @@ struct OpenAIResponsesAPIConformanceTests {
       """
     }
 
+    assertPROV1Shape(events)
+
     // R6: usage on the terminal event carries cached tokens from the
     // provider's own usage fields, and cost is derived from ModelInfo
     // pricing via Core's Usage.cost(at:) — never a hardcoded rate.
@@ -258,6 +286,47 @@ struct OpenAIResponsesAPIConformanceTests {
       return
     }
 
+    assertInlineSnapshot(of: dump(events), as: .lines) {
+      """
+      start
+      error(code: provider, message: "the model is overloaded")
+      """
+    }
+
+    assertPROV1Shape(events)
+    try await assertStableAcrossEveryChunkBoundary(data, expected: events)
+  }
+
+  @Test("a transport failure still yields .start first, then exactly one terminal .error")
+  func transportFailureStillStartsTheStream() async throws {
+    let transport = FixtureTransport(failing: StreamError(code: .transport, message: "HTTP 429"))
+    let events = try await collect(
+      OpenAIResponsesAPI().stream(
+        request: LLMRequest(model: "gpt-5", messages: []),
+        connection: connection(transport: transport)))
+
+    assertPROV1Shape(events)
+    assertInlineSnapshot(of: dump(events), as: .lines) {
+      """
+      start
+      error(code: transport, message: "HTTP 429")
+      """
+    }
+  }
+
+  @Test("a response.failed with no preceding response.created still yields .start first")
+  func providerErrorWithoutResponseCreatedStillStartsTheStream() async throws {
+    let data = Data(
+      """
+      event: response.failed
+      data: {"type":"response.failed","response":{"id":"resp_789","status":"failed",\
+      "error":{"code":"server_error","message":"the model is overloaded"}}}
+
+
+      """.utf8)
+    let events = try await replay(data)
+
+    assertPROV1Shape(events)
     assertInlineSnapshot(of: dump(events), as: .lines) {
       """
       start

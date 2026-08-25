@@ -11,9 +11,12 @@ internal import Foundation
 /// unified `StreamEvent`s satisfying `PROV-1` — exactly one `.start`
 /// first, exactly one terminal `.done` or `.error` last, and
 /// `contentIndex` on every `toolCall*` event. Tool-call argument
-/// fragments (`input_json_delta`) are tracked through one
-/// `PartialJSONAccumulator` per content index so a chunk boundary falling
-/// anywhere in the transcript never corrupts them.
+/// fragments (`input_json_delta`) run through one
+/// `PartialJSONAccumulator` per content index, which decides how much of
+/// each fragment is safe to emit and completes the arguments into valid
+/// JSON when the block ends — so concatenating a content index's
+/// `toolCallDelta` payloads always parses, wherever the provider chopped
+/// its fragments and wherever an HTTP chunk boundary fell.
 public struct AnthropicMessagesAPI: APIImplementation {
   /// The wire protocol identifier this instance reports.
   public let id: APIImplementationID = .anthropicMessages
@@ -35,6 +38,11 @@ public struct AnthropicMessagesAPI: APIImplementation {
   > {
     AsyncThrowingStream { continuation in
       let task = Task {
+        // `.start` is yielded unconditionally, before anything can fail,
+        // so PROV-1's "exactly one `.start` first" holds on every exit
+        // path — including a transport failure and an `error` SSE event
+        // that arrives without a preceding `message_start`.
+        continuation.yield(.start)
         do {
           let httpRequest = try Self.makeHTTPRequest(for: request, connection: connection)
           await Self.pump(connection.transport.stream(httpRequest), into: continuation)
@@ -186,16 +194,19 @@ public struct AnthropicMessagesAPI: APIImplementation {
         }
       }
     } catch let streamError as StreamError {
+      state.flushOpenToolCalls(into: continuation)
       continuation.yield(.error(streamError))
       continuation.finish()
       return
     } catch {
+      state.flushOpenToolCalls(into: continuation)
       continuation.yield(.error(StreamError(code: .decoding, message: "\(error)")))
       continuation.finish()
       return
     }
 
     if !state.isTerminal {
+      state.flushOpenToolCalls(into: continuation)
       continuation.yield(
         .error(
           StreamError(
@@ -223,11 +234,13 @@ public struct AnthropicMessagesAPI: APIImplementation {
 /// Lives entirely inside the single `Task` driving `pump(_:into:)` — never
 /// shared across tasks, so no lock or actor is needed (`CC-4`).
 private struct AnthropicStreamState {
-  private var didEmitStart = false
   private(set) var isTerminal = false
 
   private var toolCallIndices: Set<Int> = []
-  private var accumulators: [Int: PartialJSONAccumulator] = [:]
+  /// Tool-call content indices that have started but not yet been closed,
+  /// in the order they started.
+  private var openToolCallIndices: [Int] = []
+  private var arguments: [Int: ToolCallArgumentBuffer] = [:]
 
   private var inputTokens = 0
   private var cacheReadTokens = 0
@@ -244,7 +257,8 @@ private struct AnthropicStreamState {
 
     switch type {
     case "message_start":
-      emitStartIfNeeded(into: continuation)
+      // `.start` was already yielded by `stream(request:connection:)`;
+      // `message_start` only carries the prompt-side usage counters.
       if let message = payload?["message"] as? [String: Any],
         let usage = message["usage"] as? [String: Any]
       {
@@ -261,7 +275,8 @@ private struct AnthropicStreamState {
       else { return }
       if blockType == "tool_use" {
         toolCallIndices.insert(index)
-        accumulators[index] = PartialJSONAccumulator()
+        openToolCallIndices.append(index)
+        arguments[index] = ToolCallArgumentBuffer()
         let id = block["id"] as? String ?? ""
         let name = block["name"] as? String ?? ""
         continuation.yield(.toolCallStart(contentIndex: index, id: id, name: name))
@@ -283,9 +298,10 @@ private struct AnthropicStreamState {
           continuation.yield(.thinkingDelta(contentIndex: index, text: text))
         }
       case "input_json_delta":
-        if let fragment = delta["partial_json"] as? String {
-          accumulators[index, default: PartialJSONAccumulator()].append(fragment)
-          continuation.yield(.toolCallDelta(contentIndex: index, argumentsJSONDelta: fragment))
+        if let fragment = delta["partial_json"] as? String,
+          let committed = arguments[index, default: ToolCallArgumentBuffer()].append(fragment)
+        {
+          continuation.yield(.toolCallDelta(contentIndex: index, argumentsJSONDelta: committed))
         }
       default:
         break
@@ -294,7 +310,7 @@ private struct AnthropicStreamState {
     case "content_block_stop":
       guard let index = Self.int(payload, "index") else { return }
       if toolCallIndices.contains(index) {
-        continuation.yield(.toolCallEnd(contentIndex: index))
+        closeToolCall(index, into: continuation)
       }
 
     case "message_delta":
@@ -311,6 +327,7 @@ private struct AnthropicStreamState {
 
     case "message_stop":
       isTerminal = true
+      flushOpenToolCalls(into: continuation)
       let usage = Usage(
         inputTokens: inputTokens,
         outputTokens: outputTokens,
@@ -321,6 +338,7 @@ private struct AnthropicStreamState {
 
     case "error":
       isTerminal = true
+      flushOpenToolCalls(into: continuation)
       let message = (payload?["error"] as? [String: Any])?["message"] as? String
       continuation.yield(
         .error(StreamError(code: .provider, message: message ?? "the provider reported an error"))
@@ -334,15 +352,35 @@ private struct AnthropicStreamState {
     }
   }
 
-  /// Yields `.start` at most once, the first time the stream produces any
-  /// content — defends `PROV-1`'s "exactly one `.start` first" even
-  /// against a malformed transcript that repeats `message_start`.
-  private mutating func emitStartIfNeeded(
+  /// Closes the tool-call block at `index`, emitting whatever the
+  /// accumulator still owes to make its arguments valid JSON before the
+  /// `.toolCallEnd`.
+  mutating func closeToolCall(
+    _ index: Int,
     into continuation: AsyncThrowingStream<StreamEvent, any Error>.Continuation
   ) {
-    guard !didEmitStart else { return }
-    didEmitStart = true
-    continuation.yield(.start)
+    openToolCallIndices.removeAll { $0 == index }
+    if let completion = arguments[index]?.finish() {
+      continuation.yield(.toolCallDelta(contentIndex: index, argumentsJSONDelta: completion))
+    }
+    arguments[index] = nil
+    continuation.yield(.toolCallEnd(contentIndex: index))
+  }
+
+  /// Closes every tool-call block the provider left open.
+  ///
+  /// A stream can end — normally, on a provider `error`, or by simply
+  /// dying mid-transcript — with a tool call still receiving argument
+  /// fragments. Closing the block through the accumulator repairs the
+  /// truncated arguments into valid JSON, so a consumer that concatenated
+  /// the `toolCallDelta` payloads can still parse them.
+  mutating func flushOpenToolCalls(
+    into continuation: AsyncThrowingStream<StreamEvent, any Error>.Continuation
+  ) {
+    for index in openToolCallIndices {
+      closeToolCall(index, into: continuation)
+    }
+    openToolCallIndices = []
   }
 
   private static func jsonObject(from data: String) -> [String: Any]? {
@@ -352,5 +390,61 @@ private struct AnthropicStreamState {
 
   private static func int(_ dictionary: [String: Any]?, _ key: String) -> Int? {
     dictionary?[key] as? Int
+  }
+}
+
+/// Accumulates one tool call's streamed `input_json_delta` fragments
+/// through a `PartialJSONAccumulator`.
+///
+/// The accumulator decides what may be emitted: after each fragment, only
+/// the bytes its repaired snapshot still agrees with — the arguments text
+/// committed so far — is handed on as a `toolCallDelta`, and the rest is
+/// held back. A fragment ending mid-token (an unterminated string, a
+/// dangling `\` escape, half a `\uXXXX`) therefore never reaches a
+/// consumer as an un-completable tail; when the block ends, ``finish()``
+/// emits exactly what the repair adds on top of what was already sent.
+/// Concatenating a content index's deltas is consequently always valid
+/// JSON, even when the provider stopped mid-arguments.
+private struct ToolCallArgumentBuffer {
+  private var accumulator = PartialJSONAccumulator()
+  private var raw: [UInt8] = []
+  private var emitted = 0
+
+  /// Appends `fragment` and returns the argument text that has become
+  /// safe to emit, or `nil` if the repair committed nothing new.
+  mutating func append(_ fragment: String) -> String? {
+    accumulator.append(fragment)
+    raw.append(contentsOf: fragment.utf8)
+    let repaired = Array(accumulator.snapshot().utf8)
+
+    // The longest prefix the raw text and its repair agree on is exactly
+    // the raw text the repair kept; anything past it is either a closer
+    // the repair synthesized or a tail it dropped, neither of which can
+    // be emitted as a delta yet.
+    var committed = 0
+    while committed < raw.count, committed < repaired.count, raw[committed] == repaired[committed] {
+      committed += 1
+    }
+    // Never cut a multi-byte scalar in half.
+    while committed > 0, committed < raw.count, raw[committed] & 0xC0 == 0x80 {
+      committed -= 1
+    }
+
+    guard committed > emitted else { return nil }
+    defer { emitted = committed }
+    return String(decoding: raw[emitted..<committed], as: UTF8.self)
+  }
+
+  /// Returns whatever completes the emitted text into valid JSON, or
+  /// `nil` if nothing is outstanding.
+  mutating func finish() -> String? {
+    // No fragments at all means a tool call with no arguments; the
+    // accumulator would repair that to `null`, which is not what an empty
+    // argument list means, so nothing is emitted.
+    guard !raw.isEmpty else { return nil }
+    let repaired = Array(accumulator.snapshot().utf8)
+    guard emitted < repaired.count else { return nil }
+    defer { emitted = repaired.count }
+    return String(decoding: repaired[emitted...], as: UTF8.self)
   }
 }

@@ -19,10 +19,17 @@ public import Foundation
 /// override `models` on the returned value to keep them current.
 extension ModelProvider {
   /// Anthropic's Messages API.
+  ///
+  /// `baseURL` deliberately stops at the host: `AnthropicMessagesAPI`
+  /// appends the versioned path `v1/messages` itself, so a base URL that
+  /// already ended in `/v1` would POST to `/v1/v1/messages`. The
+  /// OpenAI-shaped adapters append version-less paths (`responses`,
+  /// `chat/completions`) instead, which is why every other entry in this
+  /// catalog does carry its vendor's version segment.
   public static func anthropic(apiKey: String) -> ModelProvider {
     ModelProvider(
       id: "anthropic",
-      baseURL: catalogURL("https://api.anthropic.com/v1"),
+      baseURL: catalogURL("https://api.anthropic.com"),
       api: .anthropicMessages,
       auth: .apiKey(apiKey),
       models: [
