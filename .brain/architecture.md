@@ -15,8 +15,12 @@ differ the code wins, and both get corrected.
 - `URLSessionTransport` is now a real network path, but no test reaches beyond `127.0.0.1`: the
   suite still runs with no keys and no outbound I/O. `ScriptedProvider` satisfies the provider
   protocol deterministically and in memory; the transport's own tests drive a loopback socket.
-- No vendor appears anywhere in the library. Providers arrive through `APIImplementation`, and
-  HTTP through `StreamingHTTPTransport`, both injected by the consumer.
+- No vendor is baked into a code path. Vendor *data* now ships —
+  `Sources/ApusKitProviders/ProviderCatalog.swift` carries opt-in `ModelProvider.anthropic`,
+  `.openAI`, `.google`, `.openRouter`, `.groq` and `.ollama` factories with base URLs, auth kind
+  and pricing — but nothing under `Sources` calls one and nothing is auto-registered: a vendor
+  exists only once a consumer invokes a factory and registers the result (TRD §0). Providers still
+  arrive through `APIImplementation` and HTTP through `StreamingHTTPTransport`, both injected.
 
 ## Target graph
 
@@ -73,7 +77,7 @@ major version.
 - **Cross-target internals use `package` access** (ACC-1/PKG-8), never `@_spi`. `Agent`'s
   `queuedFollowUpCount` is the live example — it exists so a test can observe queue state without
   widening the public surface.
-- **The umbrella holds no logic** (TRD §3.9). `Sources/ApusKit/Exports.swift` is four
+- **The umbrella holds no logic** (TRD §3.9). `Sources/ApusKit/Exports.swift` is five
   `@_exported public import` lines, the one sanctioned FORB-1 exception.
 
 ## Safeguards (merge blockers)
@@ -91,9 +95,9 @@ major version.
 
 ## Not built yet
 
-The real provider implementations (`anthropic-messages`, `openai-completions`,
-`openai-responses`), the provider catalog and typed tools are the rest of M1; the JSONL session
-tree is M2; the hook bus and AgentExtension are M3; MCP is M4; workflows are M5. TRD §8 maps each
+Typed tools (F2.1–F2.4) are the rest of M1; the JSONL session tree is M2; the hook bus and
+AgentExtension are M3; MCP is M4; workflows are M5. TRD §8 maps each to its milestone. Their
+absence is the plan, not drift. TRD §8 maps each
 to its milestone. Their absence is the plan, not drift.
 
 ## Validation

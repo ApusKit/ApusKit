@@ -10,9 +10,14 @@ checkout. Toolchain: Swift 6.2+ required (`Package.swift` declares `swift-tools-
 
 ```bash
 swift build                     # must be warning-free; warnings are errors
-swift test                      # 94 tests / 17 suites
+swift test                      # 136 tests / 26 suites as of 2026-08-25
 swift package resolve
 ```
+
+Treat any quoted test count as a smell rather than a fact — it is stale the moment a suite is
+added. `PRD.md`'s status line and its `README.md` mirror quote a count too (PROG-3 keeps the two in
+step); if they disagree with a fresh `swift test`, the fresh run wins and both files need the
+correction in the same commit.
 
 ## One test
 

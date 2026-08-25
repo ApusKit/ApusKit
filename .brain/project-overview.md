@@ -15,7 +15,8 @@ thing to you as they do to the people who wrote it.
   without the agent loop.
 - It hardcodes no vendor. A consumer supplies the provider; ApusKit supplies the loop, the tool
   system, and (later) sessions, MCP and workflows.
-- Current milestone: M0, in progress. `PRD.md` §5 is the single source of truth for state.
+- Current milestone: M1, in progress. M0's deliverables are complete but its gate stays un-flipped
+  pending an observed CI run (PROG-2). `PRD.md` §5 is the single source of truth for state.
 
 ## Vocabulary
 

@@ -14,16 +14,25 @@ delete the question.
       and Providers (`Package.swift`), carrying the WIRE-1 typed-throws carve-out. It holds only
       two kernels today and imports nothing from `ApusKitCore`. The rest of M1 — the three API
       implementations — will show whether the split earns its keep.
-- [ ] **Does the partial-JSON accumulator's `String` return shape survive contact with the API
-      implementations?** `snapshot()` returns repaired JSON text rather than a value type, because
-      `JSONValue` belongs to swift-json-schema and PKG-6 puts it out of WireFormat's reach. M1b
-      consumes it for the first time; if every caller immediately decodes, a typed shape may earn
-      its keep.
+(delete the question — the answer now lives in `gotchas.md` under "`PartialJSONAccumulator.snapshot()`
+is not append-monotone")
+
+Settled by M1b: the `String` shape survived, and no caller decodes it.
+`Sources/ApusKitProviders/AnthropicMessagesAPI.swift:396-450` uses `snapshot()` purely as a
+byte-level oracle — the longest common prefix of the raw fragments and their repair is what is safe
+to emit — and never parses the result; the two OpenAI adapters do not consult it for their emitted
+payloads at all. A typed value shape would not have helped: the question the adapters ask is
+"how much of this is safe to forward", not "what does this decode to".
 - [ ] **Should the nightly fuzz workflow land with the SSE and partial-JSON kernels alone?**
       `docs/ci-deferrals.md` names M1 as what gives the row a subject, but the row also covers the
       JSONL codec, which is M2. Two of the three targets now exist.
-- [ ] **How are recorded pi SSE transcripts and pi v3 session files obtained and licensed?**
-      TEST-3 requires them as fixtures with a conformance baseline; none exist yet.
+- [ ] **How are pi v3 session files obtained and licensed?** The SSE half of this is settled: no pi
+      transcript could be obtained under a settled licence, so the ten transcripts under
+      `Tests/Fixtures` were authored from each vendor's public streaming documentation to the same
+      event shapes, recorded as `provenance: authored-from-vendor-docs` in
+      `Tests/Fixtures/conformance-baseline.yml`. Swapping in real recordings later is a data change,
+      not a code change. M2's session codec still needs fixtures with a known provenance, and TEST-3
+      names pi v3 session files specifically.
 - [ ] **What does the M0 gate's CI evidence look like in practice** — which workflow run counts
       as proof of "scripted multi-turn + fake tool round-trip green in CI"? PRD §5 M0 leaves the
       form of the link unspecified.

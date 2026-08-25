@@ -46,7 +46,19 @@ full intended layout — do not treat its absence here as drift.
 | Incremental SSE parser | `Sources/ApusKitWireFormat/SSEParser.swift` | `Tests/ApusKitWireFormatTests/SSEParserTests.swift` | `struct` with `mutating func feed(_:) throws(SSEParseError) -> [SSEEvent]`. Accepts LF, CRLF and bare CR; a trailing bare CR is held back (see `gotchas.md`). Lines are retired by offset and the buffer drained once per call — per-line `removeFirst` made it quadratic |
 | Partial-JSON accumulator | `Sources/ApusKitWireFormat/PartialJSON.swift` | `Tests/ApusKitWireFormatTests/PartialJSONTests.swift` | `PartialJSONAccumulator.append(_:)` / `snapshot() -> String`. Defines no JSON value type — decoding is the caller's job, since `JSONValue` is swift-json-schema's and PKG-6 puts it out of reach |
 | Default HTTP transport | `Sources/ApusKitProviders/URLSessionTransport.swift` | `Tests/ApusKitProvidersTests/URLSessionTransportTests.swift` | Yields **one `HTTPStreamChunk` per byte** on purpose — `URLSession.AsyncBytes` cannot report "nothing more buffered", so coalescing needs a size threshold (stalls slow bodies) or an injected clock. `Data` stores a 1-byte payload inline |
-| Model catalog & registry | `Sources/ApusKitProviders/ModelProvider.swift`, `Sources/ApusKitProviders/ProviderRegistry.swift` | `Tests/ApusKitProvidersTests/ProvidersTests.swift` | `ProviderRegistry` is a value type with `mutating` registration |
+Intro line (replacing "Where code actually lives at M0."):
+
+Where code actually lives after M1's provider slice. Only paths that exist today appear in
+backticks; planned targets are named in plain text with the milestone that creates them.
+
+Feature-map rows (replacing the single "Model catalog & registry" row):
+
+| Anthropic wire adapter | `Sources/ApusKitProviders/AnthropicMessagesAPI.swift` | `Tests/ApusKitProvidersTests/AnthropicMessagesAPITests.swift` | `POST <baseURL>/v1/messages` — the adapter appends the whole `v1/messages` path itself. The only adapter that gates tool-call deltas through a repair buffer (`:396`), so its deltas are *not* verbatim wire fragments |
+| OpenAI Chat Completions adapter | `Sources/ApusKitProviders/OpenAICompletionsAPI.swift` | `Tests/ApusKitProvidersTests/OpenAICompletionsAPITests.swift` | `POST <baseURL>/chat/completions` with `stream_options.include_usage`; `[DONE]` sentinel and index-keyed `tool_calls`. Works unchanged against any OpenAI-compatible baseURL |
+| OpenAI Responses adapter | `Sources/ApusKitProviders/OpenAIResponsesAPI.swift` | `Tests/ApusKitProvidersTests/OpenAIResponsesAPITests.swift` | `POST <baseURL>/responses`; named SSE event types (`response.output_item.added`, `response.function_call_arguments.delta`, …). Forwards argument deltas verbatim |
+| Built-in provider catalog | `Sources/ApusKitProviders/ProviderCatalog.swift` | `Tests/ApusKitProvidersTests/ProvidersTests.swift` | Six opt-in factories — `ModelProvider.anthropic`/`.openAI`/`.google`/`.openRouter`/`.groq`/`.ollama` (`:29`–`:160`). Nothing in `Sources` calls one: a vendor exists only once a consumer invokes a factory and registers the result (TRD §0) |
+| Registry resolution & cost | `Sources/ApusKitProviders/ProviderRegistry.swift` | `Tests/ApusKitProvidersTests/ProvidersTests.swift` | `resolve(model:transport:)` returns provider + implementation + `ProviderConnection` (`:78`); `cost(of:model:)` derives from `ModelInfo.pricing` via `Usage.cost(at:)` (`:103`, PROV-3). Failures are `ProviderRegistryError` + `@nonexhaustive` `Code` (ERR-2, `:9`). Still a value type with `mutating` registration |
+| Wire fixtures | `Tests/Fixtures` | — | Ten `.sse` transcripts in three per-implementation directories, plus `conformance-baseline.yml` — which nothing reads (see `gotchas.md`) |
 | Tool protocol & erasure | `Sources/ApusKitTools/Tool.swift`, `Sources/ApusKitTools/AnyAgentTool.swift` | `Tests/ApusKitToolsTests/ToolsTests.swift` | `AnyAgentTool` is where a thrown error becomes an error `ToolResult` (TOOL-2) |
 | Tool registry & results | `Sources/ApusKitTools/ToolRegistry.swift`, `Sources/ApusKitTools/ToolResult.swift`, `Sources/ApusKitTools/ToolSupport.swift` | `Tests/ApusKitToolsTests/ToolsTests.swift` | Registry is sealed — populate the value, don't conform |
 | Agent actor | `Sources/ApusKitAgent/Agent.swift` | `Tests/ApusKitAgentTests/AgentTests.swift` | Holds history, follow-up queue, running task, event continuation |
@@ -55,8 +67,19 @@ full intended layout — do not treat its absence here as drift.
 
 ## Test fakes — check here before writing a new one
 
-All in `Tests/Shared/TestSupport.swift`, all `public`, injected through public seams (TEST-2 —
-never URLProtocol stubbing):
+In `Tests/Shared/TestSupport.swift` and `Tests/Shared/FixtureTransport.swift`, all `public`,
+injected through public seams (TEST-2 — never URLProtocol stubbing):
+
+| `Fixtures` | enum | loading a recorded transcript from `Tests/Fixtures` by file name + implementation directory (`FixtureTransport.swift:17`) |
+| `FixtureTransport` | struct | replaying a transcript through the transport seam — whole, or pre-split at a byte offset for the PROV-1 chunk-boundary sweep. `init(failing:)` (`:82`) records the request then fails the stream, so the transport-failure path needs no new fake |
+| `RequestSpyLog` | actor | asserting the URL, headers and JSON body an adapter actually POSTed (`FixtureTransport.swift:117`) |
+
+`FixtureTransport` replays the **same** bytes on every `stream(_:)` call
+(`Tests/Shared/FixtureTransport.swift:100`), so it cannot represent a multi-turn conversation —
+the loop calls `stream` once per turn and would replay turn 1 forever. A multi-turn test needs a
+cursor-based fake: `Tests/ApusKitAgentTests/CustomProviderInjectionTests.swift:73` holds a private
+`SequencedFixtureTransport` (one transcript per successive call, cursor in an actor per CC-4).
+Promote it to `Tests/Shared` the second time someone needs it.
 
 | Fake | Kind | Use it for |
 |---|---|---|
@@ -78,7 +101,7 @@ an app consumer. See `Examples/consumers/mainactor-consumer/Package.swift`.
 
 ## Validation
 
-`swift test` (94 tests / 17 suites). For one test see `commands.md` — the filter syntax has
+`swift test` (136 tests / 26 suites as of 2026-08-25). For one test see `commands.md` — the filter syntax has
 a trap.
 
 ## Open questions

@@ -53,7 +53,7 @@ before relying on it. When unsure whether a fact is durable, add it to
 
 ```bash
 swift build
-swift test                                        # 94 tests / 17 suites
+swift test                                        # 136 tests / 26 suites
 swift test --filter 'ContentBlockTests/textRoundTrips'    # symbol names, not @Test strings
 swift test --sanitize=thread
 swift format lint --strict --recursive .
