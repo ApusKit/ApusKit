@@ -6,6 +6,7 @@
 import ApusKitCore
 import ApusKitProviders
 import Foundation
+import TestSupport
 import Testing
 
 /// A connection good enough to hand to `ScriptedProvider`, which ignores
@@ -208,5 +209,179 @@ struct ProviderCostTests {
     // is not actually pinning which rate applies to which token count.
     let transposed = Pricing(inputPerMillion: 10, outputPerMillion: 5)
     #expect(usage.cost(at: transposed) == 35)
+  }
+}
+
+@Suite("Built-in provider catalog (R4)")
+struct ProviderCatalogTests {
+  @Test("anthropic() speaks anthropic-messages, authenticates with an API key, and lists models")
+  func anthropicFactory() {
+    let provider = ModelProvider.anthropic(apiKey: "test-key")
+
+    #expect(provider.id == "anthropic")
+    #expect(provider.api == .anthropicMessages)
+    #expect(provider.auth == .apiKey("test-key"))
+    #expect(!provider.models.isEmpty)
+    for model in provider.models {
+      #expect(model.contextWindow > 0)
+    }
+  }
+
+  @Test("openAI() speaks openai-responses and authenticates with a bearer token")
+  func openAIFactory() {
+    let provider = ModelProvider.openAI(apiKey: "test-key")
+
+    #expect(provider.id == "openai")
+    #expect(provider.api == .openAIResponses)
+    #expect(provider.auth == .bearer("test-key"))
+    #expect(!provider.models.isEmpty)
+  }
+
+  @Test("google(), openRouter(), and groq() all reach their vendor through openai-completions")
+  func openAICompatibleFactories() {
+    let google = ModelProvider.google(apiKey: "test-key")
+    let openRouter = ModelProvider.openRouter(apiKey: "test-key")
+    let groq = ModelProvider.groq(apiKey: "test-key")
+
+    for provider in [google, openRouter, groq] {
+      #expect(provider.api == .openAICompletions)
+      #expect(provider.auth == .bearer("test-key"))
+      #expect(!provider.models.isEmpty)
+    }
+    #expect(google.id == "google")
+    #expect(openRouter.id == "openrouter")
+    #expect(groq.id == "groq")
+  }
+
+  @Test("ollama() defaults to no auth and an overridable base URL")
+  func ollamaFactory() throws {
+    let provider = ModelProvider.ollama()
+
+    #expect(provider.id == "ollama")
+    #expect(provider.api == .openAICompletions)
+    #expect(provider.auth == .none)
+    #expect(provider.baseURL == ModelProvider.defaultOllamaBaseURL)
+
+    let customURL = try #require(URL(string: "http://example.invalid:1234/v1"))
+    let overridden = ModelProvider.ollama(baseURL: customURL)
+    #expect(overridden.baseURL == customURL)
+  }
+
+  @Test("every ModelProvider and ModelInfo field is overridable after construction")
+  func fieldsAreOverridable() {
+    // R4: no factory-returned value is opaque — a consumer must be able
+    // to override base URL, auth, or the model list before registering.
+    var provider = ModelProvider.anthropic(apiKey: "test-key")
+    // swift-format-ignore: NeverForceUnwrap
+    let customURL = URL(string: "https://proxy.example.invalid")!
+
+    provider.baseURL = customURL
+    provider.auth = .none
+    provider.models = []
+
+    #expect(provider.baseURL == customURL)
+    #expect(provider.auth == .none)
+    #expect(provider.models.isEmpty)
+  }
+
+  @Test("constructing a catalog provider registers nothing by itself (TRD §0)")
+  func catalogConstructionHasNoSideEffect() {
+    // The library never invokes these factories itself, and neither does
+    // this test: a `ProviderRegistry` populated with nothing else must
+    // still fail to resolve a model these factories describe.
+    let registry = ProviderRegistry()
+
+    #expect(throws: ProviderRegistryError.self) {
+      _ = try registry.resolve(
+        model: "claude-sonnet-4-5-20250929", transport: FixtureTransport(body: Data()))
+    }
+  }
+}
+
+@Suite("ProviderRegistry end-to-end resolution (R5)")
+struct ProviderRegistryResolutionTests {
+  @Test("resolves a registered model to its provider, implementation, and connection")
+  func resolvesRegisteredModel() throws {
+    var registry = ProviderRegistry()
+    let provider = ModelProvider.anthropic(apiKey: "test-key")
+    registry.register(provider)
+    registry.register(ScriptedProvider(id: .anthropicMessages, scripts: []))
+    let transport = FixtureTransport(body: Data())
+
+    let resolved = try registry.resolve(
+      model: "claude-sonnet-4-5-20250929", transport: transport)
+
+    #expect(resolved.provider.id == "anthropic")
+    #expect(resolved.implementation.id == .anthropicMessages)
+    #expect(resolved.connection.baseURL == provider.baseURL)
+    #expect(resolved.connection.auth == provider.auth)
+  }
+
+  @Test("throws unknownModel when no registered provider lists the model")
+  func throwsUnknownModel() {
+    var registry = ProviderRegistry()
+    registry.register(ModelProvider.anthropic(apiKey: "test-key"))
+    registry.register(ScriptedProvider(id: .anthropicMessages, scripts: []))
+
+    do {
+      _ = try registry.resolve(model: "does-not-exist", transport: FixtureTransport(body: Data()))
+      Issue.record("expected resolve(model:transport:) to throw")
+    } catch let error as ProviderRegistryError {
+      #expect(error.code == .unknownModel)
+    } catch {
+      Issue.record("expected a ProviderRegistryError, got \(error)")
+    }
+  }
+
+  @Test(
+    "throws unregisteredImplementation when the provider's api has no registered APIImplementation")
+  func throwsUnregisteredImplementation() {
+    var registry = ProviderRegistry()
+    registry.register(ModelProvider.anthropic(apiKey: "test-key"))
+    // Deliberately no APIImplementation registered under .anthropicMessages.
+
+    do {
+      _ = try registry.resolve(
+        model: "claude-sonnet-4-5-20250929", transport: FixtureTransport(body: Data()))
+      Issue.record("expected resolve(model:transport:) to throw")
+    } catch let error as ProviderRegistryError {
+      #expect(error.code == .unregisteredImplementation)
+    } catch {
+      Issue.record("expected a ProviderRegistryError, got \(error)")
+    }
+  }
+}
+
+@Suite("ProviderRegistry cost accounting (PROV-3/R6)")
+struct ProviderRegistryCostTests {
+  @Test("cost(of:model:) derives from the resolved catalog entry's own Pricing")
+  func costUsesResolvedCatalogPricing() throws {
+    var registry = ProviderRegistry()
+    let provider = ModelProvider.anthropic(apiKey: "test-key")
+    registry.register(provider)
+    let modelID = "claude-sonnet-4-5-20250929"
+    let info = try #require(provider.models.first { $0.id == modelID })
+    // Asymmetric on both axes so a cost function transposing input/output,
+    // or read/write cache rates, cannot pass by accident.
+    let usage = Usage(
+      inputTokens: 2_000_000, outputTokens: 1_000_000,
+      cacheReadTokens: 500_000, cacheWriteTokens: 100_000)
+
+    let cost = try registry.cost(of: usage, model: modelID)
+
+    // Pinned against Core's own cost formula, so a `ProviderRegistry.cost`
+    // that hardcoded a rate instead of reading `ModelInfo.pricing` fails
+    // this even though it never touches `Usage.cost(at:)` at all.
+    #expect(cost == usage.cost(at: info.pricing))
+    #expect(cost != usage.cost(at: Pricing(inputPerMillion: 1, outputPerMillion: 1)))
+  }
+
+  @Test("cost(of:model:) throws unknownModel for an unregistered model")
+  func costThrowsForUnknownModel() {
+    let registry = ProviderRegistry()
+
+    #expect(throws: ProviderRegistryError.self) {
+      _ = try registry.cost(of: Usage(inputTokens: 1, outputTokens: 1), model: "missing")
+    }
   }
 }
