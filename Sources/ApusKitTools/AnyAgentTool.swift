@@ -24,16 +24,14 @@ public struct AnyAgentTool: Sendable {
   /// shape a call to this tool must take.
   public let schema: JSONValue
 
-  private let run:
-    @Sendable (String, String, ToolCancellationSignal, @Sendable (ToolUpdate) -> Void) async ->
-      ToolResult
+  private let run: @Sendable (String, String, @Sendable (ToolUpdate) -> Void) async -> ToolResult
 
   /// Wraps `tool`, erasing its concrete `Arguments` type.
   public init<T: Tool>(_ tool: T) {
     self.name = tool.name
     self.description = tool.description
     self.schema = T.Arguments.schema.schemaValue.value
-    self.run = { toolCallID, argumentsJSON, signal, onUpdate in
+    self.run = { toolCallID, argumentsJSON, onUpdate in
       do {
         // Schema's Sendable conformance is unconfirmed, so the schema is
         // rebuilt here from `T.Arguments.schema` rather than captured as
@@ -45,21 +43,22 @@ public struct AnyAgentTool: Sendable {
             reasons.isEmpty ? "arguments do not satisfy the tool's schema" : reasons
           return ToolResult(
             content: [.text("Tool \"\(tool.name)\" received invalid arguments: \(message)")],
-            details: ["error": .string(message)]
+            details: ["error": .string(message)],
+            isError: true
           )
         }
         let arguments = try JSONDecoder().decode(T.Arguments.self, from: Data(argumentsJSON.utf8))
         let result = try await tool.execute(
           toolCallID: toolCallID,
           arguments: arguments,
-          signal: signal,
           onUpdate: onUpdate
         )
         return AnyAgentTool.truncatingOutput(of: result)
       } catch {
         return ToolResult(
           content: [.text("Tool \"\(tool.name)\" failed: \(error)")],
-          details: ["error": .string("\(error)")]
+          details: ["error": .string("\(error)")],
+          isError: true
         )
       }
     }
@@ -77,10 +76,9 @@ public struct AnyAgentTool: Sendable {
   public func execute(
     toolCallID: String,
     argumentsJSON: String,
-    signal: ToolCancellationSignal,
     onUpdate: @Sendable (ToolUpdate) -> Void
   ) async -> ToolResult {
-    await run(toolCallID, argumentsJSON, signal, onUpdate)
+    await run(toolCallID, argumentsJSON, onUpdate)
   }
 
   /// Flattens a validation failure into one human-readable line per
@@ -125,6 +123,7 @@ public struct AnyAgentTool: Sendable {
     details["truncated"] = .boolean(true)
     details["originalLineCount"] = .integer(originalLineCount)
     details["originalByteCount"] = .integer(originalByteCount)
-    return ToolResult(content: content, details: details, terminate: result.terminate)
+    return ToolResult(
+      content: content, details: details, isError: result.isError, terminate: result.terminate)
   }
 }

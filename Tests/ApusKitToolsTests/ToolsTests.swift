@@ -44,7 +44,6 @@ private struct CountingTool: Tool {
   func execute(
     toolCallID: String,
     arguments: CountArguments,
-    signal: ToolCancellationSignal,
     onUpdate: @Sendable (ToolUpdate) -> Void
   ) async throws -> ToolResult {
     await tracker.record()
@@ -62,7 +61,6 @@ private struct BigOutputTool: Tool {
   func execute(
     toolCallID: String,
     arguments: EchoArguments,
-    signal: ToolCancellationSignal,
     onUpdate: @Sendable (ToolUpdate) -> Void
   ) async throws -> ToolResult {
     let text = (1...lineCount).map { "line \($0)" }.joined(separator: "\n")
@@ -81,12 +79,60 @@ private struct WideOutputTool: Tool {
   func execute(
     toolCallID: String,
     arguments: EchoArguments,
-    signal: ToolCancellationSignal,
     onUpdate: @Sendable (ToolUpdate) -> Void
   ) async throws -> ToolResult {
     let line = String(repeating: "x", count: lineWidth)
     return ToolResult(
       content: [.text(Array(repeating: line, count: lineCount).joined(separator: "\n"))])
+  }
+}
+
+/// A tool that succeeds but writes an `"error"` entry into `details`.
+///
+/// `details` is descriptive metadata, so this result must NOT be treated as
+/// a failure — the loop keys off `isError` alone.
+private struct MisleadingDetailsTool: Tool {
+  let name = "misleading_details"
+  let description = "Succeeds while carrying an \"error\" key in details."
+
+  func execute(
+    toolCallID: String,
+    arguments: EchoArguments,
+    onUpdate: @Sendable (ToolUpdate) -> Void
+  ) async throws -> ToolResult {
+    ToolResult(content: [.text("fine")], details: ["error": .string("not a failure")])
+  }
+}
+
+/// A tool that reports failure through `isError` with empty `details`.
+private struct SilentlyFailingTool: Tool {
+  let name = "silently_failing"
+  let description = "Fails without writing anything into details."
+
+  func execute(
+    toolCallID: String,
+    arguments: EchoArguments,
+    onUpdate: @Sendable (ToolUpdate) -> Void
+  ) async throws -> ToolResult {
+    ToolResult(content: [.text("could not do it")], isError: true)
+  }
+}
+
+/// A failing tool whose output is over the line cap, so the truncation
+/// path actually runs on an error result.
+private struct BigFailingTool: Tool {
+  let name = "big_failing"
+  let description = "Fails with output over the truncation cap."
+
+  func execute(
+    toolCallID: String,
+    arguments: EchoArguments,
+    onUpdate: @Sendable (ToolUpdate) -> Void
+  ) async throws -> ToolResult {
+    ToolResult(
+      content: [.text((1...2500).map { "line \($0)" }.joined(separator: "\n"))],
+      isError: true
+    )
   }
 }
 
@@ -98,7 +144,6 @@ private struct EchoTool: Tool {
   func execute(
     toolCallID: String,
     arguments: EchoArguments,
-    signal: ToolCancellationSignal,
     onUpdate: @Sendable (ToolUpdate) -> Void
   ) async throws -> ToolResult {
     ToolResult(content: [.text(arguments.text)])
@@ -115,7 +160,6 @@ private struct ExplodingTool: Tool {
   func execute(
     toolCallID: String,
     arguments: EchoArguments,
-    signal: ToolCancellationSignal,
     onUpdate: @Sendable (ToolUpdate) -> Void
   ) async throws -> ToolResult {
     throw Failure()
@@ -131,7 +175,6 @@ struct AnyAgentToolTests {
     let result = await tool.execute(
       toolCallID: "call_1",
       argumentsJSON: #"{"text":"hello"}"#,
-      signal: ToolCancellationSignal(),
       onUpdate: { _ in }
     )
 
@@ -146,7 +189,6 @@ struct AnyAgentToolTests {
     let result = await tool.execute(
       toolCallID: "call_1",
       argumentsJSON: #"{"text":"hello"}"#,
-      signal: ToolCancellationSignal(),
       onUpdate: { _ in }
     )
 
@@ -160,7 +202,6 @@ struct AnyAgentToolTests {
     let result = await tool.execute(
       toolCallID: "call_1",
       argumentsJSON: "not json",
-      signal: ToolCancellationSignal(),
       onUpdate: { _ in }
     )
 
@@ -201,7 +242,6 @@ struct AnyAgentToolTests {
     let result = await tool.execute(
       toolCallID: "call_1",
       argumentsJSON: #"{"count":5}"#,
-      signal: ToolCancellationSignal(),
       onUpdate: { _ in }
     )
 
@@ -227,7 +267,6 @@ struct AnyAgentToolTests {
     let result = await tool.execute(
       toolCallID: "call_1",
       argumentsJSON: #"{"count":"not-a-number"}"#,
-      signal: ToolCancellationSignal(),
       onUpdate: { _ in }
     )
 
@@ -244,7 +283,6 @@ struct AnyAgentToolTests {
     let result = await tool.execute(
       toolCallID: "call_1",
       argumentsJSON: #"{"count":42}"#,
-      signal: ToolCancellationSignal(),
       onUpdate: { _ in }
     )
 
@@ -261,7 +299,6 @@ struct AnyAgentToolTests {
     let result = await tool.execute(
       toolCallID: "call_1",
       argumentsJSON: #"{"text":"go"}"#,
-      signal: ToolCancellationSignal(),
       onUpdate: { _ in }
     )
 
@@ -284,7 +321,6 @@ struct AnyAgentToolTests {
     let result = await tool.execute(
       toolCallID: "call_1",
       argumentsJSON: #"{"text":"go"}"#,
-      signal: ToolCancellationSignal(),
       onUpdate: { _ in }
     )
 
@@ -307,12 +343,85 @@ struct AnyAgentToolTests {
     let result = await tool.execute(
       toolCallID: "call_1",
       argumentsJSON: #"{"text":"go"}"#,
-      signal: ToolCancellationSignal(),
       onUpdate: { _ in }
     )
 
     #expect(result.details["originalByteCount"] == .integer(expected.utf8.count))
     #expect(result.details["originalLineCount"] == .integer(2500))
+  }
+
+  @Test("TOOL-2: a thrown error sets isError, not just a details entry")
+  func thrownErrorSetsIsError() async {
+    let tool = AnyAgentTool(ExplodingTool())
+
+    let result = await tool.execute(
+      toolCallID: "call_1",
+      argumentsJSON: #"{"text":"go"}"#,
+      onUpdate: { _ in }
+    )
+
+    #expect(result.isError)
+  }
+
+  @Test("TOOL-1: a schema violation sets isError")
+  func schemaViolationSetsIsError() async {
+    let tool = AnyAgentTool(CountingTool(tracker: CallTracker()))
+
+    let result = await tool.execute(
+      toolCallID: "call_1",
+      argumentsJSON: #"{"count":5}"#,
+      onUpdate: { _ in }
+    )
+
+    #expect(result.isError)
+  }
+
+  @Test("an \"error\" entry in details does not by itself mean failure")
+  func detailsErrorKeyIsNotFailure() async {
+    let tool = AnyAgentTool(MisleadingDetailsTool())
+
+    let result = await tool.execute(
+      toolCallID: "call_1",
+      argumentsJSON: #"{"text":"go"}"#,
+      onUpdate: { _ in }
+    )
+
+    // The old loop derived failure from `details["error"] != nil`, which
+    // would have mislabelled this successful result as an error.
+    #expect(result.details["error"] != nil)
+    #expect(!result.isError)
+  }
+
+  @Test("a failure with empty details is still a failure")
+  func isErrorWithoutDetailsIsFailure() async {
+    let tool = AnyAgentTool(SilentlyFailingTool())
+
+    let result = await tool.execute(
+      toolCallID: "call_1",
+      argumentsJSON: #"{"text":"go"}"#,
+      onUpdate: { _ in }
+    )
+
+    // The mirror image: the old rule would have called this a success.
+    #expect(result.details["error"] == nil)
+    #expect(result.isError)
+  }
+
+  @Test("truncating an error result preserves isError")
+  func truncationPreservesIsError() async {
+    // Must be a failure that survives to the truncation path: an
+    // undecodable-arguments failure returns before `truncatingOutput` runs,
+    // so it cannot detect a rebuild that drops the flag.
+    let tool = AnyAgentTool(BigFailingTool())
+
+    let result = await tool.execute(
+      toolCallID: "call_1",
+      argumentsJSON: #"{"text":"go"}"#,
+      onUpdate: { _ in }
+    )
+
+    #expect(result.details["truncated"] == .boolean(true))
+    #expect(result.isError)
   }
 
   @Test("small text output from execute is unaffected by truncation")
@@ -322,7 +431,6 @@ struct AnyAgentToolTests {
     let result = await tool.execute(
       toolCallID: "call_1",
       argumentsJSON: #"{"text":"hello"}"#,
-      signal: ToolCancellationSignal(),
       onUpdate: { _ in }
     )
 
@@ -351,7 +459,6 @@ struct ToolRegistryTests {
     let result = await tool?.execute(
       toolCallID: "call_1",
       argumentsJSON: #"{"text":"hi"}"#,
-      signal: ToolCancellationSignal(),
       onUpdate: { _ in }
     )
     #expect(result?.content == [.text("hi")])

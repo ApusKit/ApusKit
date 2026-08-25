@@ -9,6 +9,7 @@ import ApusKitCore
 import ApusKitProviders
 import ApusKitTools
 import Foundation
+import JSONSchema
 import TestSupport
 import Testing
 
@@ -77,6 +78,94 @@ private func text(of blocks: [ContentBlock]) -> String {
   }.joined()
 }
 
+/// Coverage for `Agent`'s event-observation surface (TRD §3.6).
+///
+/// Each defect these pin was live and unnoticed because every earlier test
+/// `break`s out of the stream on its first matching event, so none of them
+/// ever observed termination, a second observer, or buffer growth.
+@Suite("Agent event streams")
+struct AgentEventStreamTests {
+  @Test(
+    "a stream finishes when the agent goes away, so `for await` returns",
+    .timeLimit(.minutes(1))
+  )
+  func streamFinishesWhenAgentDeinitializes() async throws {
+    // The agent is confined to the helper, so it is released as soon as
+    // the helper returns. Without `deinit` finishing every continuation
+    // this loop never returns and the time limit fires.
+    let events = await runAndReleaseAgent()
+
+    var seen: [AgentEvent] = []
+    for await event in events {
+      seen.append(event)
+    }
+    #expect(seen.contains(.agentStart))
+    #expect(seen.contains { if case .agentEnd = $0 { return true } else { return false } })
+  }
+
+  @Test("two observers each receive every event", .timeLimit(.minutes(1)))
+  func everyObserverSeesEveryEvent() async throws {
+    let agent = makeAgent(
+      provider: ScriptedProvider(scripts: [ScriptedTurn.text("done")]),
+      tool: RecordingTool()
+    )
+    let first = await agent.makeEventStream()
+    let second = await agent.makeEventStream()
+
+    async let firstSeen = collectThroughAgentEnd(first)
+    async let secondSeen = collectThroughAgentEnd(second)
+
+    _ = await agent.run(UserMessage(content: [.text("hello")]))
+
+    let a: [AgentEvent] = await firstSeen
+    let b: [AgentEvent] = await secondSeen
+    // A single shared stream would let one observer consume events the
+    // other never sees, so the two transcripts would diverge.
+    #expect(a == b)
+    #expect(a.contains(.agentStart))
+  }
+
+  @Test("the buffering policy bounds an undrained stream", .timeLimit(.minutes(1)))
+  func undrainedStreamIsBounded() async throws {
+    // Never iterated during the run: with the default `.unbounded` policy
+    // every event would be retained instead of just the newest.
+    let events = await runAndReleaseAgent(bufferingPolicy: .bufferingNewest(1))
+
+    var seen: [AgentEvent] = []
+    for await event in events {
+      seen.append(event)
+    }
+    #expect(seen.count == 1)
+  }
+}
+
+/// Runs one scripted turn and returns its event stream, releasing the agent.
+///
+/// The agent is local to this function precisely so that it has no
+/// remaining strong reference by the time the caller drains the stream —
+/// which is what makes the stream's termination observable at all.
+private func runAndReleaseAgent(
+  bufferingPolicy: AsyncStream<AgentEvent>.Continuation.BufferingPolicy = .unbounded
+) async -> AsyncStream<AgentEvent> {
+  let agent = makeAgent(
+    provider: ScriptedProvider(scripts: [ScriptedTurn.text("done")]),
+    tool: RecordingTool()
+  )
+  let events = await agent.makeEventStream(bufferingPolicy: bufferingPolicy)
+  _ = await agent.run(UserMessage(content: [.text("hello")]))
+  return events
+}
+
+/// Collects a stream up to and including the run's terminating `.agentEnd`.
+private func collectThroughAgentEnd(_ stream: AsyncStream<AgentEvent>) async -> [AgentEvent] {
+  var seen: [AgentEvent] = []
+  for await event in stream {
+    seen.append(event)
+    if case .agentEnd = event { break }
+  }
+  return seen
+}
+
 @Suite("Agent gate suite")
 struct AgentGateTests {
   @Test("scripted multi-turn tool round-trip ends in .endTurn")
@@ -113,6 +202,57 @@ struct AgentGateTests {
     #expect(results.map(\.toolCallID) == ["call_1"])
     #expect(results.map(\.isError) == [false])
     #expect(results.first?.content == [.text("tool output")])
+  }
+
+  @Test("TOOL-2: the loop classifies a tool result by isError, not by a details key")
+  func loopClassifiesFailureByIsErrorField() async throws {
+    let log = RequestLog()
+    let provider = RequestRecordingProvider(
+      scripts: [
+        ScriptedTurn.toolCall(
+          id: "call_1", name: "recording_tool", argumentsJSON: #"{"value":"hi"}"#),
+        ScriptedTurn.text("all done"),
+      ],
+      log: log
+    )
+    // Succeeds, but carries an "error" entry in its descriptive metadata.
+    // The old rule — `details["error"] != nil` — would mislabel this.
+    let tool = RecordingTool(
+      result: ToolResult(content: [.text("fine")], details: ["error": .string("just metadata")])
+    )
+    let agent = makeAgent(provider: provider, tool: tool)
+
+    _ = await agent.run(UserMessage(content: [.text("go")]))
+
+    let requests = await log.requests
+    let secondRequest = try #require(requests.last)
+    let results = toolResults(in: secondRequest)
+    #expect(results.map(\.isError) == [false])
+  }
+
+  @Test("TOOL-2: a tool reporting isError with empty details reaches the model as an error")
+  func loopForwardsIsErrorWithoutDetails() async throws {
+    let log = RequestLog()
+    let provider = RequestRecordingProvider(
+      scripts: [
+        ScriptedTurn.toolCall(
+          id: "call_1", name: "recording_tool", argumentsJSON: #"{"value":"hi"}"#),
+        ScriptedTurn.text("all done"),
+      ],
+      log: log
+    )
+    // The mirror image: a real failure with nothing in `details`.
+    let tool = RecordingTool(
+      result: ToolResult(content: [.text("could not do it")], isError: true)
+    )
+    let agent = makeAgent(provider: provider, tool: tool)
+
+    _ = await agent.run(UserMessage(content: [.text("go")]))
+
+    let requests = await log.requests
+    let secondRequest = try #require(requests.last)
+    let results = toolResults(in: secondRequest)
+    #expect(results.map(\.isError) == [true])
   }
 
   @Test("PROV-1: argument JSON split across chunk boundaries is accumulated intact")
@@ -273,7 +413,7 @@ struct AgentGateTests {
       log: log
     )
     let agent = makeAgent(provider: provider, tool: GateTool(gate: gate))
-    let events = await agent.events
+    let events = await agent.makeEventStream()
 
     let firstRun = Task { await agent.run(UserMessage(content: [.text("first")])) }
 
@@ -439,7 +579,7 @@ struct AgentGateTests {
   )
   func abortMidStreamEndsInAborted() async throws {
     let agent = makeAgent(provider: HangingProvider(), tool: RecordingTool())
-    let events = await agent.events
+    let events = await agent.makeEventStream()
 
     let run = Task { await agent.run(UserMessage(content: [.text("hello")])) }
 
@@ -494,7 +634,7 @@ struct AgentGateTests {
   }
 
   @Test(
-    "F2.4: onUpdate progress reaches .toolExecutionUpdate, and abort() is observed via ToolCancellationSignal",
+    "F2.4: onUpdate progress reaches .toolExecutionUpdate, and abort() is observed via Task.isCancelled",
     .timeLimit(.minutes(1))
   )
   func toolProgressAndCancellationReachTheRealAgent() async throws {
@@ -506,7 +646,7 @@ struct AgentGateTests {
     let observation = CancellationObservation()
     let tool = CancellationObservingTool(gate: gate, observation: observation)
     let agent = makeAgent(provider: provider, tool: tool)
-    let events = await agent.events
+    let events = await agent.makeEventStream()
 
     let run = Task { await agent.run(UserMessage(content: [.text("please use the tool")])) }
 
@@ -522,7 +662,7 @@ struct AgentGateTests {
       break
     }
 
-    // Abort while the tool is still polling its ToolCancellationSignal,
+    // Abort while the tool is still polling Task.isCancelled,
     // rather than releasing it — proving the tool observes cancellation
     // itself, not merely that the batch was cut short.
     await agent.abort()

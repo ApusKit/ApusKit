@@ -1,6 +1,7 @@
 public import ApusKitCore
 public import ApusKitProviders
 public import ApusKitTools
+internal import Foundation
 
 /// Owns one conversation's message state and drives it through the
 /// pi-ported agent run loop against an injected provider and tool set.
@@ -21,13 +22,7 @@ public actor Agent {
   var followUpQueue: [UserMessage] = []
   var runningTask: Task<AssistantMessage, Never>?
 
-  let eventContinuation: AsyncStream<AgentEvent>.Continuation
-
-  /// A stream of every event this agent's run loop produces.
-  ///
-  /// `AgentEvent`'s cases mirror TRD §3.6: `agentStart/End`, `turnStart/End`,
-  /// `messageStart/Update/End`, `toolExecutionStart/Update/End`.
-  public let events: AsyncStream<AgentEvent>
+  var eventSubscribers: [UUID: AsyncStream<AgentEvent>.Continuation] = [:]
 
   /// Creates an agent.
   ///
@@ -49,7 +44,57 @@ public actor Agent {
     self.model = model
     self.tools = tools
     self.systemPrompt = systemPrompt
-    (self.events, self.eventContinuation) = AsyncStream.makeStream()
+  }
+
+  deinit {
+    // Without this, a consumer's `for await` over an event stream would
+    // never return once the agent it observes has gone away.
+    for continuation in eventSubscribers.values {
+      continuation.finish()
+    }
+  }
+
+  /// Returns a new stream of every event this agent's run loop produces.
+  ///
+  /// Each call returns an **independent** stream, so a UI, a logger and a
+  /// session journal can observe the same agent without competing for
+  /// events. `AgentEvent`'s cases mirror TRD §3.6: `agentStart/End`,
+  /// `turnStart/End`, `messageStart/Update/End`, `toolExecutionStart/Update/End`.
+  ///
+  /// A stream spans the **agent's** lifetime, not one run: `run(_:)` may be
+  /// called repeatedly, and each run is delimited by `.agentStart` and
+  /// `.agentEnd`. To observe a single run, stop iterating at `.agentEnd`.
+  /// The stream finishes when the agent is deinitialized.
+  ///
+  /// Events produced before this call are not replayed — create the stream
+  /// before calling `run(_:)` to observe a run from its first event.
+  ///
+  /// - Parameter bufferingPolicy: How many undelivered events this stream
+  ///   retains. The default bounds memory for a slow or absent consumer;
+  ///   pass `.unbounded` only when losing an event is unacceptable and the
+  ///   consumer is guaranteed to drain.
+  public func makeEventStream(
+    bufferingPolicy: AsyncStream<AgentEvent>.Continuation.BufferingPolicy = .bufferingNewest(256)
+  ) -> AsyncStream<AgentEvent> {
+    let (stream, continuation) = AsyncStream<AgentEvent>.makeStream(
+      bufferingPolicy: bufferingPolicy)
+    eventSubscribers[UUID()] = continuation
+    return stream
+  }
+
+  /// Delivers `event` to every live subscriber, dropping any whose stream
+  /// has ended.
+  ///
+  /// Pruning on yield is what keeps `eventSubscribers` from growing without
+  /// bound as consumers come and go: a terminated continuation reports
+  /// `.terminated` rather than needing an `onTermination` callback that
+  /// would have to hop back onto this actor to clean up after itself.
+  func emit(_ event: AgentEvent) {
+    for (id, continuation) in eventSubscribers {
+      if case .terminated = continuation.yield(event) {
+        eventSubscribers.removeValue(forKey: id)
+      }
+    }
   }
 
   /// Queues `message` and drives the run loop (`LOOP-1`) until every

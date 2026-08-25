@@ -14,7 +14,6 @@ struct EchoTool: Tool {
   func execute(
     toolCallID: String,
     arguments: EchoArguments,
-    signal: ToolCancellationSignal,
     onUpdate: @Sendable (ToolUpdate) -> Void
   ) async throws -> ToolResult {
     ToolResult(content: [.text(arguments.value)])

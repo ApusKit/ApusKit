@@ -69,7 +69,6 @@ public type.
 | `AnyAgentTool` | struct | explicit (now also exposes a public `schema: JSONValue`, derived the same way `execute` validates arguments against it) |
 | `ToolRegistry` | struct | explicit |
 | `ToolResult` | struct | explicit |
-| `ToolCancellationSignal` | struct | explicit |
 | `ToolUpdate` | struct | explicit |
 | `TruncatedText` | struct | explicit |
 

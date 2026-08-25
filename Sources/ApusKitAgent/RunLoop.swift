@@ -8,7 +8,7 @@ extension Agent {
   /// Outer loop (`LOOP-1`): drains `followUpQueue` one message at a time,
   /// running the inner turn loop for each, until the queue is empty.
   func drainFollowUpQueue() async -> AssistantMessage {
-    eventContinuation.yield(.agentStart)
+    emit(.agentStart)
 
     var lastMessage = AssistantMessage(
       content: [],
@@ -26,7 +26,7 @@ extension Agent {
       }
     }
 
-    eventContinuation.yield(.agentEnd(lastMessage))
+    emit(.agentEnd(lastMessage))
     return lastMessage
   }
 
@@ -34,7 +34,7 @@ extension Agent {
   /// asking for tool calls, per turn following `LOOP-2`'s sequence.
   func runTurns() async -> AssistantMessage {
     while true {
-      eventContinuation.yield(.turnStart)
+      emit(.turnStart)
 
       if Task.isCancelled {
         let aborted = AssistantMessage(
@@ -42,7 +42,7 @@ extension Agent {
           stopReason: .aborted,
           usage: Usage(inputTokens: 0, outputTokens: 0)
         )
-        eventContinuation.yield(.turnEnd(aborted))
+        emit(.turnEnd(aborted))
         return aborted
       }
 
@@ -65,12 +65,12 @@ extension Agent {
       } catch {
         // LOOP-3: errors never throw out of the loop.
         let errorMessage = finalMessage(for: error)
-        eventContinuation.yield(.turnEnd(errorMessage))
+        emit(.turnEnd(errorMessage))
         return errorMessage
       }
 
       history.append(.assistant(message))
-      eventContinuation.yield(.turnEnd(message))
+      emit(.turnEnd(message))
 
       // LOOP-4: a .length stop fails all of this message's tool calls,
       // unexecuted — truncated arguments are unsafe to run.
@@ -99,7 +99,7 @@ extension Agent {
   /// Streams one provider turn, mutating a partial `AssistantMessage` as
   /// each `StreamEvent` arrives, per `LOOP-2`.
   func streamTurn(request: LLMRequest) async throws -> AssistantMessage {
-    eventContinuation.yield(.messageStart)
+    emit(.messageStart)
 
     var texts: [Int: String] = [:]
     var thinkingTexts: [Int: String] = [:]
@@ -111,7 +111,7 @@ extension Agent {
     let stream = apiImplementation.stream(request: request, connection: connection)
 
     for try await event in stream {
-      eventContinuation.yield(.messageUpdate(event))
+      emit(.messageUpdate(event))
 
       switch event {
       case .start:
@@ -158,7 +158,7 @@ extension Agent {
     }
 
     let message = AssistantMessage(content: content, stopReason: stopReason, usage: usage)
-    eventContinuation.yield(.messageEnd(message))
+    emit(.messageEnd(message))
     return message
   }
 
@@ -170,32 +170,43 @@ extension Agent {
 
     guard !calls.isEmpty else { return }
 
-    let continuation = eventContinuation
     let resolvedCalls = calls.map { call in (call: call, tool: tools.tool(named: call.name)) }
 
     await withTaskGroup(of: (String, ToolResult).self) { group in
       for (call, tool) in resolvedCalls {
         group.addTask {
-          continuation.yield(.toolExecutionStart(toolCallID: call.id, name: call.name))
+          await self.emit(.toolExecutionStart(toolCallID: call.id, name: call.name))
 
           guard let tool else {
             let result = ToolResult(
               content: [.text("No tool named \"\(call.name)\" is registered.")],
-              details: ["error": .string("unknown tool")]
+              details: ["error": .string("unknown tool")],
+              isError: true
             )
-            continuation.yield(.toolExecutionEnd(toolCallID: call.id, result: result))
+            await self.emit(.toolExecutionEnd(toolCallID: call.id, result: result))
             return (call.id, result)
           }
+
+          // `Tool.execute`'s `onUpdate` is synchronous, so it cannot await
+          // this actor. Funnel updates through a stream drained by a child
+          // task: an unstructured `Task` per update would let them arrive
+          // out of order relative to `.toolExecutionStart`/`End`.
+          let (updates, updateContinuation) = AsyncStream<ToolUpdate>.makeStream()
+          async let forwarded: Void = {
+            for await update in updates {
+              await self.emit(.toolExecutionUpdate(toolCallID: call.id, update: update))
+            }
+          }()
 
           let result = await tool.execute(
             toolCallID: call.id,
             argumentsJSON: call.argumentsJSON,
-            signal: ToolCancellationSignal(),
-            onUpdate: { update in
-              continuation.yield(.toolExecutionUpdate(toolCallID: call.id, update: update))
-            }
+            onUpdate: { updateContinuation.yield($0) }
           )
-          continuation.yield(.toolExecutionEnd(toolCallID: call.id, result: result))
+          updateContinuation.finish()
+          await forwarded
+
+          await self.emit(.toolExecutionEnd(toolCallID: call.id, result: result))
           return (call.id, result)
         }
       }
@@ -206,7 +217,7 @@ extension Agent {
             ToolResultMessage(
               toolCallID: id,
               content: result.content,
-              isError: result.details["error"] != nil
+              isError: result.isError
             )
           )
         )

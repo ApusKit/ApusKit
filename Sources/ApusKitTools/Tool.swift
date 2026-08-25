@@ -23,16 +23,20 @@ public protocol Tool: Sendable {
   /// - Parameters:
   ///   - toolCallID: The id of the `ContentBlock.toolCall` being answered.
   ///   - arguments: The decoded call arguments.
-  ///   - signal: Lets long-running work observe cooperative cancellation.
   ///   - onUpdate: Reports progress before the result is ready.
   ///
   /// A thrown error never reaches the agent loop: `AnyAgentTool` converts
   /// it into an error `ToolResult` (`TOOL-2`).
+  ///
+  /// Cancellation is ordinary structured-concurrency cancellation
+  /// (`LOOP-6`): `abort()` cancels the task running this method, so check
+  /// `Task.isCancelled` between units of long-running work, or wrap a
+  /// suspension in `withTaskCancellationHandler`, and return a partial
+  /// `ToolResult`.
   @concurrent
   func execute(
     toolCallID: String,
     arguments: Arguments,
-    signal: ToolCancellationSignal,
     onUpdate: @Sendable (ToolUpdate) -> Void
   ) async throws -> ToolResult
 }

@@ -41,7 +41,6 @@ private actor WeatherTool: Tool {
   func execute(
     toolCallID: String,
     arguments: Arguments,
-    signal: ToolCancellationSignal,
     onUpdate: @Sendable (ToolUpdate) -> Void
   ) async throws -> ToolResult {
     recordedCalls.append(arguments)

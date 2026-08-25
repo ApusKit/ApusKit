@@ -57,7 +57,6 @@ public actor RecordingTool: Tool {
   public func execute(
     toolCallID: String,
     arguments: Arguments,
-    signal: ToolCancellationSignal,
     onUpdate: @Sendable (ToolUpdate) -> Void
   ) async throws -> ToolResult {
     recordedCalls.append(arguments)
@@ -102,7 +101,6 @@ public struct ThrowingTool: Tool {
   public func execute(
     toolCallID: String,
     arguments: Arguments,
-    signal: ToolCancellationSignal,
     onUpdate: @Sendable (ToolUpdate) -> Void
   ) async throws -> ToolResult {
     throw ThrowingToolError()
@@ -278,7 +276,6 @@ public struct ConcurrencyProbeTool: Tool {
   public func execute(
     toolCallID: String,
     arguments: Arguments,
-    signal: ToolCancellationSignal,
     onUpdate: @Sendable (ToolUpdate) -> Void
   ) async throws -> ToolResult {
     await probe.begin()
@@ -527,11 +524,11 @@ public actor FollowUpGate {
 }
 
 /// Records whether a `CancellationObservingTool` ever saw its
-/// `ToolCancellationSignal` become cancelled (`F2.4`).
+/// task cancelled (`F2.4`).
 ///
 /// An actor rather than a lock-protected flag, per `CC-4`.
 public actor CancellationObservation {
-  /// Whether the tool observed `signal.isCancelled == true` before returning.
+  /// Whether the tool observed `Task.isCancelled == true` before returning.
   public private(set) var observedCancelled = false
 
   /// Creates an unobserved-cancellation record.
@@ -544,12 +541,12 @@ public actor CancellationObservation {
 
 /// A tool that reports one `onUpdate` progress message, signals a
 /// `FollowUpGate` that it has started, then polls its
-/// `ToolCancellationSignal` until it observes cancellation, recording
+/// `Task.isCancelled` until it observes cancellation, recording
 /// that observation to a shared `CancellationObservation` (`F2.4`).
 ///
 /// Polls rather than blocking on a continuation: `abort()` cancels the
 /// enclosing `Task`, but a suspended `CheckedContinuation` is never woken
-/// by cancellation alone, so a tool that must observe `signal.isCancelled`
+/// by cancellation alone, so a tool that must observe `Task.isCancelled`
 /// has to check it cooperatively instead of waiting on one.
 public struct CancellationObservingTool: Tool {
   /// The arguments `CancellationObservingTool` decodes its calls into.
@@ -594,12 +591,11 @@ public struct CancellationObservingTool: Tool {
   public func execute(
     toolCallID: String,
     arguments: Arguments,
-    signal: ToolCancellationSignal,
     onUpdate: @Sendable (ToolUpdate) -> Void
   ) async throws -> ToolResult {
     onUpdate(ToolUpdate(message: "started"))
     await gate.signalStarted()
-    while !signal.isCancelled {
+    while !Task.isCancelled {
       try? await Task.sleep(for: .milliseconds(10))
     }
     await observation.markCancelled()
@@ -646,7 +642,6 @@ public struct GateTool: Tool {
   public func execute(
     toolCallID: String,
     arguments: Arguments,
-    signal: ToolCancellationSignal,
     onUpdate: @Sendable (ToolUpdate) -> Void
   ) async throws -> ToolResult {
     await gate.signalStarted()

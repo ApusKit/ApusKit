@@ -139,15 +139,15 @@ public protocol Tool: Sendable {
   var name: String { get }
   var description: String { get }
   func execute(toolCallID: String, arguments: Arguments,
-               signal: ToolCancellationSignal,
                onUpdate: @Sendable (ToolUpdate) -> Void) async throws -> ToolResult
 }
-public struct ToolResult: Sendable { public var content: [ContentBlock]; public var details: [String: JSONValue]; public var terminate: Bool }
+public struct ToolResult: Sendable { public var content: [ContentBlock]; public var details: [String: JSONValue]; public var isError: Bool; public var terminate: Bool }
 ```
 
 - JSON Schema derived via `swift-json-schema` `@Schemable`; a type-erased `AnyAgentTool` backs the registry.
 - **TOOL-1** Arguments are validated against the schema BEFORE `execute` is called; invalid args become an error `ToolResult`, never a crash.
-- **TOOL-2** Errors thrown from `execute` become error `ToolResult`s — a tool can never take the loop down.
+- **TOOL-2** Errors thrown from `execute` become error `ToolResult`s — a tool can never take the loop down. Failure is carried by `ToolResult.isError` and forwarded to `ToolResultMessage.isError`; `details` is descriptive metadata only, and **nothing in the loop keys behaviour off a `details` entry**.
+- **TOOL-4** Cancellation is ordinary structured-concurrency cancellation (`LOOP-6`) — `Task.isCancelled` and `withTaskCancellationHandler` inside `execute`. The library ships no cancellation-token type: Swift already has the concept, and a wrapper around `Task.isCancelled` reports the reading task's state rather than the tool's.
 - **TRUNC-1** Output truncation ported 1:1 from pi: head-truncate at **2000 lines or 50 KB, whichever comes first**; continuation supported via offset/limit parameters. Spilling oversized payloads to files is the CONSUMER's job (core stays sandbox-neutral).
 - **TOOL-3** No built-in app tools in this target. Reference tools require a `docs/proposals/` entry first.
 
@@ -161,7 +161,11 @@ public struct ToolResult: Sendable { public var content: [ContentBlock]; public 
 
 ### 3.6 ApusKitAgent — the loop
 
-`Agent` is an **actor** owning: message state, steering + follow-up queues, `events: AsyncStream<AgentEvent>` (`agentStart/End, turnStart/End, messageStart/Update/End, toolExecutionStart/Update/End`), `abort()`.
+`Agent` is an **actor** owning: message state, steering + follow-up queues, `makeEventStream(bufferingPolicy:) -> AsyncStream<AgentEvent>` (`agentStart/End, turnStart/End, messageStart/Update/End, toolExecutionStart/Update/End`), `abort()`.
+
+- **EVENT-1** Each call to `makeEventStream` returns an **independent** stream, so a UI, a logger and a session journal (`WF-1`) can observe one agent without competing for events. A single shared stream would let one observer consume what another never sees.
+- **EVENT-2** Streams are **bounded by default** (`.bufferingNewest`); an absent or slow consumer must not grow the agent's memory without limit. `.unbounded` is opt-in, for a consumer that cannot lose an event.
+- **EVENT-3** A stream spans the **agent's** lifetime, not one run — `run(_:)` may be called repeatedly, and runs are delimited by `.agentStart`/`.agentEnd`. Every stream is finished when the agent is deinitialized, so `for await` always terminates.
 
 `runLoop` semantics — **ported from pi 1:1, normative**:
 
