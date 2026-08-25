@@ -70,6 +70,26 @@ private struct BigOutputTool: Tool {
   }
 }
 
+/// A tool returning few lines that are individually enormous, so only the
+/// 50 KB half of `TRUNC-1` can cap it.
+private struct WideOutputTool: Tool {
+  let name = "wide_output"
+  let description = "Returns a text block of very long lines."
+  let lineCount: Int
+  let lineWidth: Int
+
+  func execute(
+    toolCallID: String,
+    arguments: EchoArguments,
+    signal: ToolCancellationSignal,
+    onUpdate: @Sendable (ToolUpdate) -> Void
+  ) async throws -> ToolResult {
+    let line = String(repeating: "x", count: lineWidth)
+    return ToolResult(
+      content: [.text(Array(repeating: line, count: lineCount).joined(separator: "\n"))])
+  }
+}
+
 /// A tool that always succeeds, echoing its argument back.
 private struct EchoTool: Tool {
   let name = "echo"
@@ -253,6 +273,46 @@ struct AnyAgentToolTests {
     #expect(result.details["truncated"] == .boolean(true))
     #expect(result.details["originalLineCount"] == .integer(2500))
     #expect(result.details["error"] == nil)
+  }
+
+  @Test("TRUNC-1: the 50 KB byte cap applies at the AnyAgentTool boundary too")
+  func oversizedOutputIsByteCappedThroughTheToolBoundary() async {
+    // Ten 10 KB lines: only 10 lines, so the 2000-line cap cannot fire and
+    // the byte cap is the only thing that can truncate this.
+    let tool = AnyAgentTool(WideOutputTool(lineCount: 10, lineWidth: 10_000))
+
+    let result = await tool.execute(
+      toolCallID: "call_1",
+      argumentsJSON: #"{"text":"go"}"#,
+      signal: ToolCancellationSignal(),
+      onUpdate: { _ in }
+    )
+
+    guard case .text(let text)? = result.content.first else {
+      Issue.record("expected a text content block, got \(result.content)")
+      return
+    }
+    #expect(text.utf8.count <= 50_000)
+    #expect(text.components(separatedBy: "\n").count == 4)
+    #expect(result.details["truncated"] == .boolean(true))
+    #expect(result.details["originalByteCount"] == .integer(100_009))
+    #expect(result.details["error"] == nil)
+  }
+
+  @Test("TRUNC-1: the recorded original size is the real pre-truncation size")
+  func truncationRecordsTheRealOriginalSize() async {
+    let tool = AnyAgentTool(BigOutputTool(lineCount: 2500))
+    let expected = (1...2500).map { "line \($0)" }.joined(separator: "\n")
+
+    let result = await tool.execute(
+      toolCallID: "call_1",
+      argumentsJSON: #"{"text":"go"}"#,
+      signal: ToolCancellationSignal(),
+      onUpdate: { _ in }
+    )
+
+    #expect(result.details["originalByteCount"] == .integer(expected.utf8.count))
+    #expect(result.details["originalLineCount"] == .integer(2500))
   }
 
   @Test("small text output from execute is unaffected by truncation")

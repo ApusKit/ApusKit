@@ -132,6 +132,7 @@ against — one derivation, two uses.
 public struct TruncatedText: Sendable, Equatable {
   public var text: String
   public var isTruncated: Bool
+  public var linesReturned: Int
   public var originalLineCount: Int
   public var originalByteCount: Int
 }
@@ -147,12 +148,28 @@ public func headTruncate(
 Head-truncates `text` at `limit` lines or `maxBytes` UTF-8 bytes,
 whichever comes first (`TRUNC-1`), and reports whether the source held
 more than the returned window did. `offset` lets a caller fetch the
-remainder of a previously-truncated text: call again with `offset` set
-to the `limit` used the first time to continue right after it (`R8`) —
-an offset/limit pair rather than an opaque cursor, because both bounds
-are already meaningful units (a line count and a byte count) a caller
+remainder of a previously-truncated text: call again with `offset`
+advanced by the previous call's `linesReturned` (`R8`) — an
+offset/limit pair rather than an opaque cursor, because both bounds are
+already meaningful units (a line count and a byte count) a caller
 already has in hand from the first call's `TruncatedText`, with no
 cursor-encoding scheme to invent or version.
+
+`linesReturned` is what makes that continuation total, and it is not
+always `limit`. The two caps do not compose on the same axis — `limit`
+counts lines, `maxBytes` counts bytes — so when the byte cap ends a
+window first, the window covers fewer lines than `limit` asked for.
+Stepping by `limit` would then skip exactly the lines the byte cap held
+back; stepping by `linesReturned` cannot. For the same reason the byte
+cap ends on a **line** boundary rather than mid-line, backing off over
+UTF-8 continuation bytes so a window never contains half a line or half
+a Unicode scalar.
+
+The one input line offset cannot step past is a single line that alone
+exceeds `maxBytes`. That window comes back byte-capped at a scalar
+boundary with `linesReturned == 0`, which says plainly that paging
+cannot advance — consistent with `TRUNC-1` leaving the spilling of an
+oversized payload to the consumer.
 
 `AnyAgentTool.execute` applies `headTruncate` to every text content
 block of a tool's result before returning it, recording `truncated`,
