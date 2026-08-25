@@ -1,14 +1,22 @@
-# Wire-compat conformance baseline (TRD TEST-3).
+# Wire-compat fixture provenance (TRD TEST-3).
 #
-# Every recorded transcript under Tests/Fixtures/ is replayed against its
-# APIImplementation. A fixture failure that is NOT listed here fails CI.
-# This file is the ONLY place a known deviation may be recorded.
+# THIS FILE IS NOT ENFORCED. No test and no workflow reads it — verified by
+# `grep -rn conformance-baseline Sources Tests .github Package.swift`, which
+# matches only this comment. It is a record for humans, kept under version
+# control so the origin of each transcript travels with the fixtures.
+#
+# Enforcement lives in the per-implementation suites in
+# Tests/ApusKitProvidersTests/: every transcript here is replayed against its
+# APIImplementation, and a fixture that stops decoding fails the Tests gate
+# like any other test. Adding an entry to `deviations` below therefore grants
+# no waiver and changes no behaviour — if a deviation ever needs to be
+# tolerated, the test that tolerates it is the place to say so.
 
-# Provenance of the transcripts themselves. TEST-3 names "recorded pi SSE
-# transcripts"; none could be obtained under a settled licence, so the
-# transcripts here are authored from each vendor's public streaming
-# documentation to the same event shapes. Swapping in real recorded
-# transcripts later is a data change, not a code change.
+# TEST-3 names "recorded pi SSE transcripts"; none could be obtained under a
+# settled licence, so the transcripts here are authored from each vendor's
+# public streaming documentation to the same event shapes. Swapping in real
+# recorded transcripts later is a data change, not a code change.
 provenance: authored-from-vendor-docs
 
+# Known, deliberate divergences from the vendor documentation. Informational.
 deviations: []

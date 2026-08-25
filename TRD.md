@@ -37,7 +37,7 @@ apuskit/
 │   └── ApusKit/                 // umbrella re-export only
 ├── Tests/
 │   ├── <TargetName>Tests/       // one test target per source target
-│   ├── Shared/                  // fakes: ScriptedProvider helpers, ToolSpy, FixtureLoader
+│   ├── Shared/                  // TestSupport target: protocol-seam fakes + shared contract checks (TEST-2)
 │   └── Fixtures/                // recorded pi SSE transcripts + real pi v3 session files + conformance-baseline.yml
 ├── Evals/                       // non-default target: scenario suites driving the REAL loop on ScriptedProvider
 ├── Benchmarks/                  // package-benchmark target: SSE parse, session rebuild, loop overhead
@@ -53,7 +53,7 @@ apuskit/
 - **PKG-1** `swift-tools-version: 6.2`; Swift 6 language mode; `StrictConcurrency` on every target; `treatAllWarnings(as: .error)`.
 - **PKG-2** Platforms: `.macOS(.v14)`, `.iOS(.v17)`, `.macCatalyst(.v17)`, `.tvOS(.v17)`, `.visionOS(.v1)`. Nothing else. No Linux CI, but MUST NOT introduce code that would block Linux (see FORB-3/FORB-4).
 - **PKG-3** Upcoming features enabled on all targets: `ExistentialAny`, `MemberImportVisibility`, `InternalImportsByDefault`.
-- **PKG-4** Package **traits**: `NIO` (pulls `async-http-client`, enables the NIO transport backend), `MCP` (pulls `modelcontextprotocol/swift-sdk`, enables `ApusKitMCP`). Default traits: none. Everything else must build with zero traits enabled.
+- **PKG-4** Package **traits**: `NIO` (pulls `async-http-client`, enables the NIO transport backend), `MCP` (pulls `modelcontextprotocol/swift-sdk`, enables `ApusKitMCP`). Default traits: none. Everything else must build with zero traits enabled. Both traits are **declared but inert** until their milestone lands (NIO: M1's second transport; MCP: M4) — no source is conditionalized on either yet, so a traits-matrix job today would build the identical tree four times and prove nothing.
 - **PKG-5** Dependencies (exact-pin anything 0.x): `swift-json-schema` (@Schemable), `modelcontextprotocol/swift-sdk` (trait `MCP`), `async-http-client` (trait `NIO`), `swift-argument-parser` (Examples only), `package-benchmark` (Benchmarks only), `swift-docc-plugin`.
 - **PKG-6** Dependency DAG (arrows = "may import"; anything not listed is forbidden):
 
@@ -262,8 +262,8 @@ Re-exports every target. Zero logic. Nothing else.
 ## 5. Testing requirements
 
 - **TEST-1** **Swift Testing only.** No XCTest anywhere.
-- **TEST-2** Unit tests use protocol-seam fakes (`ScriptedProvider`, `ToolSpy`, in-memory `SessionStore`). Never URLProtocol stubbing.
-- **TEST-3** **Wire-compat conformance suite**: recorded pi SSE transcripts per API implementation + real pi v3 session files in `Tests/Fixtures/`; known deviations listed ONLY in `conformance-baseline.yml`. A fixture failure not in the baseline fails CI.
+- **TEST-2** Unit tests use protocol-seam fakes from the `TestSupport` target (`ScriptedProvider`, `RecordingTool`, `ThrowingTool`, `GateTool`, `HangingProvider`, `RequestRecordingProvider`, `FixtureTransport`, `RequestSpyLog`, in-memory `SessionStore`). Never URLProtocol stubbing.
+- **TEST-3** **Wire-compat conformance suite**: SSE transcripts per API implementation + pi v3 session files in `Tests/Fixtures/`, replayed by the per-implementation suites in `Tests/`. Those suites are the enforcement — a fixture that stops decoding fails the Tests gate like any other test. `Tests/Fixtures/conformance-baseline.yml` is a **provenance record** (where each fixture came from, and any deliberate divergence from vendor docs), read by humans, not by CI: no code loads it, and a `deviations:` list that nothing enforces would be worse than none because it reads like a waiver.
 - **TEST-4** Event-stream and rebuilt-context assertions render a deterministic **textual dump** and compare it against an inline expected literal with `#expect`. The dump is the contract: one stable line per event, every field written out rather than relying on a mirror-based `description`. No snapshot library — the comparison is string equality, and a dependency that supplies it must not drag UI frameworks into the test build (FORB-3).
 - **TEST-5** Live provider suites are `@Suite(.enabled(if: env("ANTHROPIC_API_KEY") != nil))`-style — never CI-blocking.
 - **TEST-6** **Conformance Kit** ships as a product: a reusable Swift Testing suite that any third-party `APIImplementation`/`Tool`/`SessionStore`/`StreamingHTTPTransport` conformance runs against itself. Every built-in conformance runs it in CI.
