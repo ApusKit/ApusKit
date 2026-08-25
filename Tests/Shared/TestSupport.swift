@@ -526,6 +526,87 @@ public actor FollowUpGate {
   }
 }
 
+/// Records whether a `CancellationObservingTool` ever saw its
+/// `ToolCancellationSignal` become cancelled (`F2.4`).
+///
+/// An actor rather than a lock-protected flag, per `CC-4`.
+public actor CancellationObservation {
+  /// Whether the tool observed `signal.isCancelled == true` before returning.
+  public private(set) var observedCancelled = false
+
+  /// Creates an unobserved-cancellation record.
+  public init() {}
+
+  func markCancelled() {
+    observedCancelled = true
+  }
+}
+
+/// A tool that reports one `onUpdate` progress message, signals a
+/// `FollowUpGate` that it has started, then polls its
+/// `ToolCancellationSignal` until it observes cancellation, recording
+/// that observation to a shared `CancellationObservation` (`F2.4`).
+///
+/// Polls rather than blocking on a continuation: `abort()` cancels the
+/// enclosing `Task`, but a suspended `CheckedContinuation` is never woken
+/// by cancellation alone, so a tool that must observe `signal.isCancelled`
+/// has to check it cooperatively instead of waiting on one.
+public struct CancellationObservingTool: Tool {
+  /// The arguments `CancellationObservingTool` decodes its calls into.
+  @Schemable
+  public struct Arguments: Decodable, Sendable, Equatable {
+    /// An arbitrary payload the test script supplies.
+    public var value: String
+
+    /// Creates arguments.
+    public init(value: String) {
+      self.value = value
+    }
+  }
+
+  /// This tool's name, as referenced by scripted `toolCall` events.
+  public let name: String
+
+  /// This tool's description.
+  public let description: String
+
+  private let gate: FollowUpGate
+  private let observation: CancellationObservation
+
+  /// Creates a cancellation-observing tool.
+  ///
+  /// - Parameters:
+  ///   - name: The name scripted `toolCall` events should reference.
+  ///   - gate: The handshake this tool signals once it has started.
+  ///   - observation: Where this tool records that it saw cancellation.
+  public init(
+    name: String = "cancellation_observing_tool",
+    gate: FollowUpGate,
+    observation: CancellationObservation
+  ) {
+    self.name = name
+    self.description = "Reports progress, then polls for cancellation."
+    self.gate = gate
+    self.observation = observation
+  }
+
+  /// Reports progress, signals it has started, then polls for cancellation.
+  public func execute(
+    toolCallID: String,
+    arguments: Arguments,
+    signal: ToolCancellationSignal,
+    onUpdate: @Sendable (ToolUpdate) -> Void
+  ) async throws -> ToolResult {
+    onUpdate(ToolUpdate(message: "started"))
+    await gate.signalStarted()
+    while !signal.isCancelled {
+      try? await Task.sleep(for: .milliseconds(10))
+    }
+    await observation.markCancelled()
+    return ToolResult(content: [.text("cancelled")])
+  }
+}
+
 /// A tool that blocks inside the agent's tool-execution phase until a
 /// `FollowUpGate` releases it, holding one run open so a test can queue a
 /// follow-up message into the in-flight run (`LOOP-1`).

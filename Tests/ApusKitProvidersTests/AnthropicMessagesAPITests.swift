@@ -10,6 +10,7 @@ import ApusKitCore
 import ApusKitProviders
 import Foundation
 import InlineSnapshotTesting
+import JSONSchema
 import TestSupport
 import Testing
 
@@ -175,6 +176,97 @@ struct AnthropicMessagesAPITests {
     #expect(toolResultBlocks[0]["type"] as? String == "tool_result")
     #expect(toolResultBlocks[0]["tool_use_id"] as? String == "toolu_01")
     #expect(toolResultBlocks[0]["is_error"] == nil)
+  }
+
+  @Test("renders LLMRequest.tools as name/description/input_schema objects (R5)")
+  func requestBodyRendersTools() async throws {
+    let log = RequestSpyLog()
+    let api = AnthropicMessagesAPI()
+    let connection = ProviderConnection(
+      baseURL: exampleBaseURL,
+      auth: .apiKey("test-key"),
+      transport: FixtureTransport(
+        body: Data("event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n".utf8), log: log)
+    )
+    let request = LLMRequest(
+      model: "claude-3-5-sonnet-20241022",
+      messages: [],
+      tools: [
+        ToolDefinition(
+          name: "get_weather",
+          description: "Look up the current weather for a city.",
+          parameters: [
+            "type": "object",
+            "properties": ["location": ["type": "string"]],
+            "required": ["location"],
+          ]
+        )
+      ]
+    )
+
+    for try await _ in api.stream(request: request, connection: connection) {}
+
+    let requests = await log.requests
+    let httpRequest = try #require(requests.first)
+    let body = try #require(httpRequest.body)
+    let json = try #require(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+
+    let tools = try #require(json["tools"] as? [[String: Any]])
+    #expect(tools.count == 1)
+    #expect(tools[0]["name"] as? String == "get_weather")
+    #expect(tools[0]["description"] as? String == "Look up the current weather for a city.")
+    let inputSchema = try #require(tools[0]["input_schema"] as? [String: Any])
+    #expect(inputSchema["type"] as? String == "object")
+    let properties = try #require(inputSchema["properties"] as? [String: Any])
+    let location = try #require(properties["location"] as? [String: Any])
+    #expect(location["type"] as? String == "string")
+    #expect(inputSchema["required"] as? [String] == ["location"])
+  }
+
+  @Test("an empty LLMRequest.tools omits the tools key entirely (R5)")
+  func emptyToolsOmitsToolsKey() async throws {
+    let plainLog = RequestSpyLog()
+    let emptyLog = RequestSpyLog()
+    let api = AnthropicMessagesAPI()
+    let fixtureBody = Data("event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n".utf8)
+
+    let plainConnection = ProviderConnection(
+      baseURL: exampleBaseURL,
+      auth: .apiKey("test-key"),
+      transport: FixtureTransport(body: fixtureBody, log: plainLog)
+    )
+    let emptyConnection = ProviderConnection(
+      baseURL: exampleBaseURL,
+      auth: .apiKey("test-key"),
+      transport: FixtureTransport(body: fixtureBody, log: emptyLog)
+    )
+
+    let plainRequest = LLMRequest(model: "claude-3-5-sonnet-20241022", messages: [])
+    let explicitlyEmptyRequest = LLMRequest(
+      model: "claude-3-5-sonnet-20241022", messages: [], tools: [])
+
+    for try await _ in api.stream(request: plainRequest, connection: plainConnection) {}
+    for try await _ in api.stream(request: explicitlyEmptyRequest, connection: emptyConnection) {}
+
+    let plainRequests = await plainLog.requests
+    let emptyRequests = await emptyLog.requests
+    let plainHTTPRequest = try #require(plainRequests.first)
+    let emptyHTTPRequest = try #require(emptyRequests.first)
+
+    // An empty `tools` array must be indistinguishable from a request that
+    // never mentioned tools at all — a bare key-absence grep would miss a
+    // mutant that renders `"tools": []` instead of omitting the key.
+    #expect(emptyHTTPRequest.url == plainHTTPRequest.url)
+    #expect(emptyHTTPRequest.method == plainHTTPRequest.method)
+    #expect(emptyHTTPRequest.headers == plainHTTPRequest.headers)
+    let plainJSON = try JSONSerialization.jsonObject(with: #require(plainHTTPRequest.body))
+    let emptyJSON = try JSONSerialization.jsonObject(with: #require(emptyHTTPRequest.body))
+    #expect(
+      NSDictionary(dictionary: try #require(plainJSON as? [String: Any]))
+        == NSDictionary(dictionary: try #require(emptyJSON as? [String: Any])))
+
+    let body = try #require(emptyHTTPRequest.body)
+    #expect((try JSONSerialization.jsonObject(with: body) as? [String: Any])?["tools"] == nil)
   }
 
   @Test("auth .bearer renders an Authorization header instead of x-api-key")

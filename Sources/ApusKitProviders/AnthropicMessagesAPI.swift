@@ -97,7 +97,18 @@ public struct AnthropicMessagesAPI: APIImplementation {
     if let systemPrompt = request.systemPrompt {
       body["system"] = systemPrompt
     }
+    if !request.tools.isEmpty {
+      body["tools"] = request.tools.map(renderToolDefinition)
+    }
     return body
+  }
+
+  private static func renderToolDefinition(_ tool: ToolDefinition) -> [String: Any] {
+    [
+      "name": tool.name,
+      "description": tool.description,
+      "input_schema": tool.parameters.jsonSerializationValue,
+    ]
   }
 
   private static func renderMessage(

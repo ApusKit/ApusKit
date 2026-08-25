@@ -455,4 +455,66 @@ struct AgentGateTests {
     #expect(final.stopReason == .aborted)
     #expect(final.content.isEmpty)
   }
+
+  @Test("R6: registered tools reach LLMRequest.tools, sorted by name")
+  func registeredToolsReachLLMRequestTools() async throws {
+    let log = RequestLog()
+    let provider = RequestRecordingProvider(scripts: [ScriptedTurn.text("all done")], log: log)
+    let zTool = AnyAgentTool(RecordingTool(name: "z_tool"))
+    let aTool = AnyAgentTool(ThrowingTool(name: "a_tool"))
+    let agent = makeAgent(provider: provider, tools: [zTool, aTool])
+
+    _ = await agent.run(UserMessage(content: [.text("hello")]))
+
+    let requests = await log.requests
+    let request = try #require(requests.first)
+
+    // ToolRegistry.allTools' order is nondeterministic — without sorting
+    // by name, this assertion would flap between runs.
+    #expect(
+      request.tools == [
+        ToolDefinition(name: aTool.name, description: aTool.description, parameters: aTool.schema),
+        ToolDefinition(name: zTool.name, description: zTool.description, parameters: zTool.schema),
+      ])
+  }
+
+  @Test(
+    "F2.4: onUpdate progress reaches .toolExecutionUpdate, and abort() is observed via ToolCancellationSignal",
+    .timeLimit(.minutes(1))
+  )
+  func toolProgressAndCancellationReachTheRealAgent() async throws {
+    let provider = ScriptedProvider(scripts: [
+      ScriptedTurn.toolCall(
+        id: "call_1", name: "cancellation_observing_tool", argumentsJSON: #"{"value":"hi"}"#)
+    ])
+    let gate = FollowUpGate()
+    let observation = CancellationObservation()
+    let tool = CancellationObservingTool(gate: gate, observation: observation)
+    let agent = makeAgent(provider: provider, tool: tool)
+    let events = await agent.events
+
+    let run = Task { await agent.run(UserMessage(content: [.text("please use the tool")])) }
+
+    // The tool reports its onUpdate progress and yields
+    // .toolExecutionUpdate BEFORE signalling the gate, so by the time this
+    // returns the event has already landed in the (unbounded) event stream.
+    await gate.waitUntilStarted()
+
+    for await event in events
+    where event
+      == .toolExecutionUpdate(toolCallID: "call_1", update: ToolUpdate(message: "started"))
+    {
+      break
+    }
+
+    // Abort while the tool is still polling its ToolCancellationSignal,
+    // rather than releasing it — proving the tool observes cancellation
+    // itself, not merely that the batch was cut short.
+    await agent.abort()
+    let final = await run.value
+
+    #expect(final.stopReason == .aborted)
+    let observedCancelled = await observation.observedCancelled
+    #expect(observedCancelled)
+  }
 }

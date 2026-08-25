@@ -5,6 +5,7 @@
 
 import ApusKitCore
 import ApusKitTools
+import Foundation
 import JSONSchema
 import JSONSchemaBuilder
 import Testing
@@ -12,6 +13,56 @@ import Testing
 @Schemable
 struct EchoArguments: Decodable, Sendable {
   var text: String
+}
+
+@Schemable
+struct CountArguments: Decodable, Sendable {
+  var count: Int
+}
+
+/// Tracks whether a tool's `execute` was ever invoked, so a test can
+/// prove a schema violation short-circuited before reaching it.
+private actor CallTracker {
+  private(set) var callCount = 0
+
+  func record() {
+    callCount += 1
+  }
+}
+
+/// A tool whose `execute` records every call it receives via `CallTracker`.
+private struct CountingTool: Tool {
+  let name = "count"
+  let description = "Records that it ran and echoes the count."
+  let tracker: CallTracker
+
+  func execute(
+    toolCallID: String,
+    arguments: CountArguments,
+    signal: ToolCancellationSignal,
+    onUpdate: @Sendable (ToolUpdate) -> Void
+  ) async throws -> ToolResult {
+    await tracker.record()
+    return ToolResult(content: [.text("\(arguments.count)")])
+  }
+}
+
+/// A tool that returns a text block of `lineCount` lines, to exercise
+/// `TRUNC-1` truncation of oversized output.
+private struct BigOutputTool: Tool {
+  let name = "big_output"
+  let description = "Returns a text block with the given number of lines."
+  let lineCount: Int
+
+  func execute(
+    toolCallID: String,
+    arguments: EchoArguments,
+    signal: ToolCancellationSignal,
+    onUpdate: @Sendable (ToolUpdate) -> Void
+  ) async throws -> ToolResult {
+    let text = (1...lineCount).map { "line \($0)" }.joined(separator: "\n")
+    return ToolResult(content: [.text(text)])
+  }
 }
 
 /// A tool that always succeeds, echoing its argument back.
@@ -96,6 +147,82 @@ struct AnyAgentToolTests {
     let tool = AnyAgentTool(EchoTool())
     #expect(tool.name == "echo")
     #expect(tool.description == "Echoes the given text back.")
+  }
+
+  @Test("R1: exposes the JSON Schema derived from the wrapped tool's Arguments")
+  func exposesDerivedSchema() {
+    let tool = AnyAgentTool(EchoTool())
+
+    guard case .object(let keywords) = tool.schema else {
+      Issue.record("expected an object schema, got \(tool.schema)")
+      return
+    }
+    #expect(keywords["type"] == .string("object"))
+    guard case .object(let properties)? = keywords["properties"] else {
+      Issue.record("expected a \"properties\" keyword, got \(keywords["properties"] as Any)")
+      return
+    }
+    #expect(properties["text"] != nil)
+  }
+
+  @Test("TOOL-1: a schema violation becomes an error ToolResult, and execute is never invoked")
+  func schemaViolationNeverReachesExecute() async {
+    let tracker = CallTracker()
+    let tool = AnyAgentTool(CountingTool(tracker: tracker))
+
+    let result = await tool.execute(
+      toolCallID: "call_1",
+      argumentsJSON: #"{"count":"not-a-number"}"#,
+      signal: ToolCancellationSignal(),
+      onUpdate: { _ in }
+    )
+
+    #expect(result.details["error"] != nil)
+    let callCount = await tracker.callCount
+    #expect(callCount == 0)
+  }
+
+  @Test("TRUNC-1: oversized output from execute is head-truncated, original size recorded")
+  func oversizedOutputIsTruncated() async {
+    let tool = AnyAgentTool(BigOutputTool(lineCount: 2500))
+
+    let result = await tool.execute(
+      toolCallID: "call_1",
+      argumentsJSON: #"{"text":"go"}"#,
+      signal: ToolCancellationSignal(),
+      onUpdate: { _ in }
+    )
+
+    guard case .text(let text)? = result.content.first else {
+      Issue.record("expected a text content block, got \(result.content)")
+      return
+    }
+    #expect(text.components(separatedBy: "\n").count == 2000)
+    #expect(result.details["truncated"] == .boolean(true))
+    #expect(result.details["originalLineCount"] == .integer(2500))
+    #expect(result.details["error"] == nil)
+  }
+
+  @Test("small text output from execute is unaffected by truncation")
+  func smallOutputIsNotTruncated() async {
+    let tool = AnyAgentTool(EchoTool())
+
+    let result = await tool.execute(
+      toolCallID: "call_1",
+      argumentsJSON: #"{"text":"hello"}"#,
+      signal: ToolCancellationSignal(),
+      onUpdate: { _ in }
+    )
+
+    #expect(result.details["truncated"] == nil)
+  }
+
+  @Test("the exposed schema and definition() encode the same JSON Schema for Arguments")
+  func schemaValueAgreesWithDefinition() throws {
+    let viaSchemaProperty = AnyAgentTool(EchoTool()).schema
+    let data = try JSONEncoder().encode(EchoArguments.schema.definition())
+    let viaDefinition = try JSONDecoder().decode(JSONValue.self, from: data)
+    #expect(viaSchemaProperty == viaDefinition)
   }
 }
 
