@@ -308,6 +308,69 @@ evidence: grep for "terminate" in PRD.md returns no match; PRD.md:37 "- **F4.1**
 options: [PRD] Add tool-initiated termination to F4 as a stated capability and leave the field spelling in the TRD (recommended) / [TRD] Keep it as a platform-specific detail of the ported pi loop
 status: noted
 
+### spec-027 · major · contradicts
+key: contradicts@F10.3+PKG-6+TEST-6|**conformance kit** ships as a product: a reusable swift testing suite that any ⇄**pkg-6** dependency dag (arrows = "may import"; anything not listed is forbidde
+where: TRD.md:270 ⇄ TRD.md:58
+refs: TEST-6, PKG-6, F10.3
+quote: **Conformance Kit** ships as a product: a reusable Swift Testing suite that any third-party `APIImplementation`/`Tool`/`SessionStore`/`StreamingHTTPTransport` conformance runs against itself. ⇄ **PKG-6** Dependency DAG (arrows = "may import"; anything not listed is forbidden):
+finding: A shipped product must be a Sources target that imports Core, Providers, Tools, Sessions and Testing, yet neither the §1 layout nor the PKG-6 DAG names such a target, and the DAG forbids anything unlisted. One codebase adds a conformance-kit product in breach of PKG-6 as written; the other keeps the kit in Tests/Shared (TestSupport), where it is not a product and third parties cannot depend on it as F10.3 requires.
+evidence: TRD.md:40 "│   ├── Shared/                  // TestSupport target: protocol-seam fakes + shared contract checks (TEST-2)" is the only place shared contract checks are placed in the layout; TRD.md:28-37 lists nine Sources targets with no kit; PRD.md:69 "A Conformance Kit: an executable test suite third parties run against their own provider/tool/store implementations."; Tests/Shared/TestSupport.swift:663 "`TEST-6` Conformance Kit will generalise; until that ships".
+question: Where does the Conformance Kit live in the repository layout and the PKG-6 dependency DAG, and which targets may it import?
+options: Add the kit as a named product target in §1 and PKG-6, deciding whether it may import Agent or only the four conformable-protocol targets. (recommended) / Keep the kit inside Tests/Shared, accepting that TEST-6 and F10.3 'ships as a product' cannot hold and must be rewritten as a non-product deliverable.
+status: open
+
+### spec-028 · major · contradicts
+key: contradicts@M0+PROG-2+TRD§7|## 7. ci gates (all required on every pr unless marked nightly)⇄all five §7 workflows — tests, tsan, docs, format and consumer simulation — are 
+where: TRD.md:281 ⇄ PRD.md:95
+refs: M0, TRD§7, PROG-2
+quote: ## 7. CI gates (all required on every PR unless marked nightly) ⇄ All five §7 workflows — Tests, TSan, Docs, Format and Consumer simulation — are green
+finding: TRD §7 lists eight non-nightly rows and §8 makes M0's backing include '§7 jobs live' with a milestone DONE only when its backing checks are green, but the PRD counts five workflows as 'all' and marks M0 done. One codebase treats M0 as complete with five jobs; the other holds M0 in progress until Soundness, API breakage and Traits matrix also run — and TRD PKG-4 itself concedes the Traits matrix row 'would build the identical tree four times and prove nothing', so the TRD's own rule and its own table disagree on which rows are required when.
+evidence: TRD.md:310 "| M0 Skeleton | §1 layout, §2 manifest, §3.1 Core, `ScriptedProvider`, loop skeleton (LOOP-1..7 partial), first TEST suites, §7 jobs live |"; TRD.md:306 "a milestone is DONE only when its backing checks are green in CI"; PRD.md:103 "| M0 Skeleton | ✅ |"; `ls .github/workflows` returns exactly consumers.yml docs.yml format.yml tests.yml tsan.yml; docs/ci-deferrals.md defers Soundness and API breakage to M3 and Traits matrix to M1/M4.
+question: Which §7 rows must be live for a milestone's '§7 jobs live' backing to count — every non-nightly row, or only the rows that have a subject at that milestone?
+options: [PRD] Only rows with a subject at that milestone count, and the TRD's §7/§8 state that per-milestone schedule explicitly so 'all required on every PR' no longer contradicts PKG-4 and the M0 record. (recommended) / [TRD] Every non-nightly row is required from M0 onward, so M0 reverts to in-progress until Soundness, API breakage and Traits matrix jobs exist.
+status: open
+
+### spec-029 · major · order
+key: order@F1.1+M1+PKG-4|- [x] transport seam + default urlsession transport (2026-08-25)⇄both traits are **declared but inert** until their milestone lands (nio: m1's se
+where: TRD.md:56 ⇄ PRD.md:122
+refs: PKG-4, M1, F1.1
+quote: Both traits are **declared but inert** until their milestone lands (NIO: M1's second transport; MCP: M4) ⇄ - [x] Transport seam + default URLSession transport (2026-08-25)
+finding: The TRD places the NIO `AsyncHTTPClientTransport` inside M1 ('M1's second transport'), but the PRD's M1 checklist has no NIO item and leaves only the live-smoke gate open, so the PRD closes M1 without it. One codebase must ship async-http-client and the second transport before M1 flips; the other flips M1 with URLSession only and lands NIO at an unstated later point.
+evidence: TRD.md:125 "Shipped transports: `URLSessionTransport` (default, zero deps) and, behind trait `NIO`, `AsyncHTTPClientTransport`."; PRD.md:125 "- [ ] **Gate:** live smoke vs Anthropic + OpenAI + injected custom-endpoint provider (F1.2)" is the sole open M1 item; Package.swift:36-39 declares only swift-json-schema and swift-docc-plugin — no async-http-client; docs/ci-deferrals.md ties the Traits matrix to "M1 Real streaming (`NIO`, via `AsyncHTTPClientTransport`)".
+question: Is the NIO `AsyncHTTPClientTransport` an M1 deliverable that must land before M1 flips, or does it belong to a later milestone?
+options: [PRD] NIO is not part of M1; the TRD's PKG-4 milestone note and §8 M1 backing are moved to whichever milestone actually carries the second transport. (recommended) / [TRD] NIO is an M1 deliverable; the PRD's M1 checklist gains it and M1 stays open until the trait-gated transport exists.
+status: open
+
+### spec-030 · minor · contradicts
+key: contradicts@F1.5+PKG-7+TEST-2|**test-2** unit tests use protocol-seam fakes from the `testsupport` target (`sc⇄`scriptedprovider` — a deterministic `apiimplementation` playing back scripted e
+where: TRD.md:127 ⇄ TRD.md:266
+refs: TEST-2, F1.5, PKG-7
+quote: `ScriptedProvider` — a deterministic `APIImplementation` playing back scripted event sequences — is **public** and documented (testing is first-class). ⇄ **TEST-2** Unit tests use protocol-seam fakes from the `TestSupport` target (`ScriptedProvider`, `RecordingTool`, `ThrowingTool`, `GateTool`, `HangingProvider`, `RequestRecordingProvider`, `FixtureTransport`, `RequestSpyLog`, in-memory `SessionStore`).
+finding: §3.3 places ScriptedProvider in the public ApusKitProviders product while TEST-2 lists it among the fakes of the non-product TestSupport target in Tests/Shared. One codebase ships it to consumers (F1.5); the other keeps it test-only and consumers cannot reach it.
+evidence: Sources/ApusKitProviders/ScriptedProvider.swift:20 "public struct ScriptedProvider: APIImplementation {" — the repository chose the §3.3 placement; PRD.md:22 "**F1.5** A deterministic scripted provider so agents can be developed and tested with no network and no API keys."
+options: Keep ScriptedProvider in ApusKitProviders as the PRD's F1.5 needs, and drop it from TEST-2's TestSupport list. (recommended) / Move it to TestSupport, which would break F1.5 for consumers.
+status: noted
+
+### spec-031 · minor · contradicts
+key: contradicts@F6.2+F8.1+PKG-6|agent (+ mcp swift-sdk) ← mcp agent ← workflows⇄every layer is usable on its own: the provider client without the agent, the ses
+where: PRD.md:10 ⇄ TRD.md:64
+refs: PKG-6, F8.1, F6.2
+quote: every layer is usable on its own: the provider client without the agent, the session codec alone, the MCP server without any agent code. ⇄ Agent (+ mcp swift-sdk) ← MCP          Agent ← Workflows
+finding: The PRD promises the MCP server usable 'without any agent code', but PKG-6 makes ApusKitMCP — client and server in one target — import ApusKitAgent, so any consumer of the server links the agent target. One codebase ships a single MCP target that drags Agent into every server consumer; the other splits server from client so the server depends only on Tools.
+evidence: TRD.md:195 "### 3.7 ApusKitMCP — MCP client AND server (trait `MCP`)" defines one target for both; TRD.md:278 (DOC-3) requires each consumer to declare exactly one product dependency, so an ApusKitMCP consumer necessarily carries ApusKitAgent transitively.
+options: Read 'without any agent code' as 'without running an agent' and keep the single ApusKitMCP target per PKG-6. (recommended) / Split the MCP server into a target that does not import ApusKitAgent, adding it to §1 and PKG-6.
+status: noted
+
+### spec-032 · minor · contradicts
+key: contradicts@M0+TRD§7|## 7. ci gates (all required on every pr unless marked nightly)⇄| tests (macos matrix) | `swift test` on swift 6.2 + nightly toolchain | all gre
+where: TRD.md:281 ⇄ TRD.md:286
+refs: TRD§7, M0
+quote: ## 7. CI gates (all required on every PR unless marked nightly) ⇄ | Tests (macOS matrix) | `swift test` on Swift 6.2 + nightly toolchain | all green |
+finding: 'Nightly' names a schedule in the Fuzz and Benchmarks rows but a snapshot compiler in the Tests row, so the Tests row's nightly-toolchain leg is simultaneously required ('all green', not a nightly row) and arguably exempt ('marked nightly'). One codebase blocks every PR on an unreleased compiler; the other treats that leg as advisory.
+evidence: .github/workflows/tests.yml: "continue-on-error: ${{ matrix.toolchain == 'nightly' }}" with the comment "§7 marks the nightly toolchain as the non-required half of this row" — the workflow chose the advisory reading, which the table's 'all green' does not state.
+options: State in §7 that the nightly-toolchain leg is advisory and only the released-toolchain leg is required, distinguishing it from the schedule sense of 'nightly'. (recommended) / Make the nightly-toolchain leg required as the row currently reads, accepting PR blockage on snapshot-compiler breaks.
+status: noted
+
 ## Gates measured
 <!-- every row the TRD declares, measured at reviewed_commit in a throwaway copy; rewritten by each gates-lens run -->
 | declared in | command | cause | measured | note |
@@ -338,3 +401,4 @@ status: noted
 
 ## History
 - 2026-08-26 · full · 204a0fe916e0 @ 71c01a5 · 5 lenses · 26 findings (1 blocker, 18 major) · draft
+- 2026-08-26 · delta · 204a0fe916e0 · 1 lenses · 6 new (0 blocker, 3 major) · 0 confirmed resolved · draft
