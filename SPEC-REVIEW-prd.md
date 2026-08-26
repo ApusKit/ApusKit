@@ -108,5 +108,17 @@ evidence: PRD.md:95 also carries "`swift-snapshot-testing` was dropped for plain
 options: [PRD] Keep §5 status at capability/milestone granularity (F-ids, gate links, dates) and let the TRD-side detail live in the TRD or in the CI evidence it links to (recommended) / [PRD] Declare §5 explicitly as the Apple implementation's state, exempt from the PRD's platform-neutral body
 status: noted
 
+### spec-009 · major · contradicts
+key: contradicts@M6+PRD§4+PROG-2|a milestone is **done** only when its gate passes as an automated, evidence-link⇄| m6 | hardening → 1.0 | api freeze driven by real consumers | an external app s
+where: PRD.md:77 ⇄ PRD.md:87
+refs: M6, PRD§4, PROG-2
+quote: A milestone is **done** only when its gate passes as an automated, evidence-linked check. ⇄ | M6 | Hardening → 1.0 | API freeze driven by real consumers | An external app ships on the released package — including its MCP server and a workflow — without forking it |
+finding: An external app shipping is a human observation, not an automated check, and PROG-2 requires the ✅ link to be a CI run or test. One codebase never flips M6 (and so never reaches 1.0); the other flips it on a human-provided link, contradicting the §4 rule and PROG-2.
+evidence: PRD.md:93 "**PROG-2** a gate flips to ✅ only with a link to the passing check (CI run / test)"; PRD.md:89 "**1.0 = the M6 gate**"; TRD.md:316 backs M6 only with enum/Sendable freezes, naming no check that could be automated.
+question: Is the M6 gate exempt from the 'automated, evidence-linked check' rule, or must it be restated as something CI can observe?
+options: Declare M6 (and 1.0) a human-judged gate with its own evidence form, carving it out of PRD §4's automation rule and PROG-2. (recommended) / Restate the M6 gate as an automatable check (for example a consumer-simulation style build of a named external package) so the §4 rule holds uniformly.
+status: open
+
 ## History
 - 2026-08-26 · full · 9ab9319b1d8e · 4 lenses · 8 findings (3 blocker, 4 major) · draft
+- 2026-08-26 · delta · 9ab9319b1d8e · 1 lenses · 1 new (0 blocker, 1 major) · 0 confirmed resolved · draft
