@@ -1,22 +1,37 @@
 # Gotchas
 
-Last reviewed: 2026-08-25
+Last reviewed: 2026-08-26
 Source of truth: `docs/ci-deferrals.md`, `.github/workflows`, git history
 
 Traps that already cost someone time. Every entry stays — they exist to stop rediscovery.
 Entries marked **Safeguard** are merge blockers, not advice.
 
-## `swift test --filter` takes symbol names, not `@Test` display strings
+## `swift test --filter` is a regex over symbol names **and** file basenames
 
-Symptom: `swift test --filter 'ContentBlock/text round-trips'` prints
-`warning: No matching test cases were run`, runs zero tests, and **exits 0**.
-Evidence: `Tests/ApusKitCoreTests/CoreTests.swift:17-21` — `@Suite("ContentBlock")` on
-`struct ContentBlockTests`, `@Test("text round-trips")` on `func textRoundTrips()`.
-Impact: a silent green. An agent filtering by the human-readable name concludes its change is
-verified when nothing ran at all.
-Do: filter on the Swift symbols — `swift test --filter 'ContentBlockTests/textRoundTrips'`.
-Avoid: pasting the `@Suite`/`@Test` display strings into `--filter`. If a filtered run reports
-0 tests, treat it as a failure and fix the filter.
+Symptom: three filters select the same tests for different reasons, and a fourth selects none while
+still exiting 0. `--filter 'CoreTests\.swift'` → `Test run with 21 tests in 6 suites passed`, though
+no type named `CoreTests` exists anywhere; `--filter 'ompactionTest'` → 18 tests, on a bare
+substring; `--filter 'ContentBlock/text round-trips'` → `Test run with 0 tests in 0 suites passed`,
+**exit 0**.
+Evidence: measured in this checkout at `643d340`. `Tests/ApusKitCoreTests/CoreTests.swift` declares
+six suites — `ContentBlockTests`, `StopReasonTests`, `UsageTests`, `StreamErrorTests`,
+`StreamEventTests`, `MessagesTests` — and no `CoreTests` type, yet the escaped-dot regex
+`CoreTests\.swift`, which cannot match a symbol path, selects all 21 of its tests. The match is on
+the file **basename** only: `--filter 'Tests/ApusKitSessionsTests'` selects 0.
+Impact: two silent greens for the price of one. A display string matches nothing, so a verify line
+built from a `@Test("...")` string runs zero tests and passes; and a filter that *looks* symbolic may
+actually be anchored to a file name, so renaming the file quietly makes the verify vacuous while it
+keeps reporting a pass. A plan whose verify step is `--filter 'FooTests'` proves nothing unless a
+`FooTests` symbol exists.
+Do: filter on a declared symbol path — `swift test --filter 'ContentBlockTests/textRoundTrips'`,
+`--filter 'CompactionTests/CompactTests'` — and guard every scoped run:
+`swift test --filter X 2>&1 | grep -qE 'Test run with [1-9]'` exits 1 on an empty selection
+(measured: `--filter 'ZZZNoSuchTestZZZ'` exits 0, guarded it exits 1). Because piping discards
+`swift test`'s own status (see the `${PIPESTATUS[0]}` entry below), redirect to a log and read `$?`,
+then grep the log. The count to read is the trailing `Test run with N tests` line — the XCTest
+banner above it says `Executed 0 tests` on every run and is not the count.
+Avoid: `@Suite`/`@Test` display strings in `--filter`; and treating a filter that happens to equal a
+file's basename as evidence that the symbol it names exists.
 
 ## Unscoped DocC fails because of a dependency, not this package
 
@@ -28,12 +43,35 @@ Impact: looks like an ApusKit docs regression and invites a pointless hunt throu
 comments.
 Do: always pass one `--target` per ApusKit target — the command in `commands.md` and in
 `.github/workflows/docs.yml`.
-Avoid: "simplifying" the Docs gate by dropping the `--target` flags. Adding a new target means
-updating three places: `.spi.yml`, `.github/workflows/docs.yml`, and TRD §7.
+## A new library product with no consumer package passes the DOC-3 gate silently
+
+Symptom: `ApusKitSessions` shipped as a seventh `.library` product and the Consumers workflow stayed
+green without ever compiling it standalone.
+Evidence: `Package.swift:28` declares the product; `.github/workflows/consumers.yml:44` iterates
+`for d in Examples/consumers/*/; do`; and `Examples/consumers` holds seven directories —
+`core-consumer`, `wireformat-consumer`, `providers-consumer`, `tools-consumer`, `agent-consumer`,
+`umbrella-consumer`, `mainactor-consumer` — none of them for Sessions. A glob that matches nothing new
+iterates nothing and the loop exits 0.
+Impact: DOC-3 exists to prove each product is usable without the agent loop; a product with no
+consumer package gets that claim for free. The asymmetry is easy to miss because the *Docs* gate
+names its targets explicitly (`.spi.yml:4` and `.github/workflows/docs.yml:65` were both updated for
+ApusKitSessions, so an omission there fails loudly) while the *Consumers* gate is glob-driven and
+cannot fail on absence.
+Do: adding a `.library` product means updating **four** places — `.spi.yml`,
+`.github/workflows/docs.yml`, TRD §7, and a new one-product package under `Examples/consumers`. A
+sessions consumer is the one still owed. Verify by diffing `ls Examples/consumers` against the
+`products:` list in `Package.swift`, not by trusting a green Consumers run.
+Avoid: reading a green glob-driven gate as coverage. Any `for d in <glob>/` loop reports success on
+zero iterations.
+
+Status: the ApusKitSessions instance that exposed this is now closed —
+`Examples/consumers/sessions-consumer/` landed 2026-08-26, so all eight products have a consumer.
+The trap itself is permanent: the gate globs whatever directories exist, so the NEXT new product
+repeats it silently.
 
 ## Consumer manifests must pin the root package name — **Safeguard**
 
-Symptom: all six consumer builds fail with `unknown package 'ApusKit' in dependencies`, but only
+Symptom: every consumer build fails with `unknown package 'ApusKit' in dependencies`, but only
 in a checkout whose directory is not named `ApusKit`.
 Evidence: commit `2337766`; `Examples/consumers/mainactor-consumer/Package.swift` shows the fix.
 Impact: CI hid this because actions/checkout lands in a directory named after the repo — so it
@@ -550,3 +588,89 @@ Do: set `isError` explicitly; treat `details` as descriptive metadata only. When
 Avoid: probing a `[String: JSONValue]` bag for a magic key to make a control-flow decision, and
 testing such a rule only at the type that produces it — the loop-level behaviour needs its own test,
 which is what a first attempt here missed.
+
+## `ApusKitSessions` carries messages in two opposite orders
+
+Symptom: a reviewer reads `Sources/ApusKitSessions/ContextRebuild.swift:32` — `leafToRoot.firstIndex`
+picking the compaction to honour — and files it as an off-by-one that should be `lastIndex`. The code
+is correct; `CutPoint`'s own doc comment is what makes it look wrong.
+Evidence: `Session.history(from:)` returns **leaf-to-root** — `Sources/ApusKitSessions/Session.swift:102`
+states "`result[0]` is the entry at `leaf`" — so `firstIndex` is the compaction *nearest the leaf*,
+the one whose `summary` + `retainedTail` supersede everything above it. `Compaction` is the opposite:
+`cutPoint(tokenCounts:)` and `compact(messages:)` both document "(oldest first)" at
+`Compaction.swift:114` and `:191`. But `CutPoint`'s summary at `Compaction.swift:94` still says it
+cuts a "leaf-to-root-ordered" context, contradicting both.
+Impact: a caller who trusts `CutPoint`'s comment and passes a reversed array gets a silently inverted
+cut — the newest turns summarized away, the oldest retained verbatim — with no error anywhere. And
+the review cost: `firstIndex` → `lastIndex` is a real defect the suite now catches
+(`swift test --filter 'ApusKitSessionsTests'` exits 1 under that mutation), so the production code is
+not the thing to "fix".
+Do: check which end the array starts at before touching an index in this target. Tree walks —
+`history(from:)`, `buildContext(leaf:)` — are leaf-first; compaction arithmetic is oldest-first.
+Avoid: assuming one order across the target, and trusting `CutPoint`'s doc summary over the
+"(oldest first)" contract on the functions that consume it.
+
+## `Session.init(header:entries:)` can discard every entry and the suite stays green
+
+Symptom: replacing the body of `Session.init(header:entries:)` with
+`for entry in entries { _ = entry }` — discarding every loaded entry — leaves `swift test` reporting
+`Test run with 241 tests in 42 suites passed`, exit 0.
+Evidence: measured against `643d340` in a scratch copy. `grep -rn "Session(header:" Tests/` returns
+only `Session(header: try Self.header())` — no test anywhere passes a non-empty `entries:`. Every
+R4/R5 test hand-builds the tree with `append(_:)`, so the
+`SessionStore.loadSession` → `Session(header:entries:)` → `buildContext(leaf:)` seam — the whole
+reason `SessionFileDecodeResult.entries` exists — has zero coverage.
+Impact: rehydrating a persisted session is exactly the path M3's agent wiring will sit on, and
+nothing protects it. Both stores are asserted only up to what `loadSession` returns, never through
+the tree it is meant to feed, so branching and context rebuild over a *loaded* session are unproven.
+Do: drive one test store → `Session(header:entries:)` → `buildContext(leaf:)` end to end before
+building on this seam. More generally: when a convenience initializer takes a defaulted collection,
+assert it once with a non-empty one — the default argument is what hides the loop.
+Avoid: reading "50 tests in 11 suites passed" for `ApusKitSessionsTests` as coverage of the public
+surface. It is coverage of `append(_:)`.
+
+## An ordering rule needs two instances on the path to be pinned
+
+Symptom: a test suite is green, a selection rule ("nearest", "first", "last") is asserted several
+times, and inverting the rule in production code changes nothing.
+Evidence: `Sources/ApusKitSessions/ContextRebuild.swift:32` picks the compaction nearest the leaf via
+`firstIndex` over a leaf-to-root array. With a single matching element `firstIndex` and `lastIndex`
+return the same index, so no fixture placing **one** compaction on the path can distinguish them,
+however many assertions it makes. The mutation is caught today only because a fixture with two
+compactions on one path exists — `swift test --filter 'ApusKitSessionsTests'` exits 1 under
+`firstIndex` → `lastIndex`, measured at `643d340`.
+Impact: the class generalizes. "Nearest", "first match wins", "last write wins", stable-sort and
+priority rules are all unfalsifiable against a fixture holding one instance of the thing being
+ordered, and the suite reads green while the rule itself is untested.
+Do: when a rule is about *which one* of several, build the fixture with at least two, arranged so the
+wrong choice yields a different observable result. Prove it by inverting the rule in a scratch copy
+and watching the run go red.
+Avoid: proving a selection rule with a one-element collection, and reading a passing filtered run as
+evidence the rule holds.
+
+## A conformance does not inherit its protocol requirement's `@concurrent` — **Safeguard**
+
+Symptom: a `public` type conforms to a protocol whose async requirements are all `@concurrent`, its
+own witnesses carry no isolation annotation, and nothing warns. The type's doc comment explains it
+as "Every requirement is `@concurrent` (inherited from ``SessionStore``)". There is no such
+inheritance — `@concurrent` is an attribute on a *declaration*, and a witness is a separate
+declaration.
+Evidence: `Sources/ApusKitSessions/SessionStore.swift:43`, `:54`, `:62`, `:68` each carry
+`@concurrent`; the witnesses at `Sources/ApusKitSessions/JSONLFileSessionStore.swift:29`, `:47`,
+`:80`, `:92` carry none, and the inheritance claim is at `:9`. The in-repo precedent goes the other
+way: `Tool.execute` is `@concurrent` at `Sources/ApusKitTools/Tool.swift:36` **and** its witness
+`AnyAgentTool.execute` repeats it at `Sources/ApusKitTools/AnyAgentTool.swift:75`. Adding
+`@concurrent` to a witness is legal, not a redeclaration error — measured: `swift build` exits 0 in a
+scratch copy with it added.
+Impact: CC-2 binds the public API surface, and a witness *is* public API. A consumer holding a
+concrete `JSONLFileSessionStore` rather than an `any SessionStore` sees no isolation contract at all,
+and adding one after release is source-breaking. `Tests/Shared/InMemorySessionStore.swift` has the
+same omission, so the fake cannot be used as the convention.
+Do: repeat `@concurrent` / `nonisolated(nonsending)` on every public witness, the way
+`Sources/ApusKitTools/AnyAgentTool.swift:75` does, and update `docs/sendable-audit.md` in the same
+change (CC-3).
+Avoid: justifying a missing annotation with "inherited from the protocol" — nothing propagates it —
+and assuming the compiler will flag a witness that silently drops it.
+
+Status: the `JSONLFileSessionStore` instance that exposed this is fixed — all four witnesses
+now carry an explicit `@concurrent` (2026-08-26). The rule stands for every future conformance.

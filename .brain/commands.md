@@ -1,6 +1,6 @@
 # Commands
 
-Last reviewed: 2026-08-25
+Last reviewed: 2026-08-26
 Source of truth: `.github/workflows`
 
 Verbatim, runnable. Every command below is either taken from a workflow file or was run in this
@@ -10,7 +10,7 @@ checkout. Toolchain: Swift 6.2+ required (`Package.swift` declares `swift-tools-
 
 ```bash
 swift build                     # must be warning-free; warnings are errors
-swift test                      # 178 tests / 30 suites as of 2026-08-25
+swift test                      # counts move every run — read the output, not this line
 swift package resolve
 ```
 
@@ -25,9 +25,18 @@ correction in the same commit.
 swift test --filter 'ContentBlockTests/textRoundTrips'
 ```
 
-`--filter` matches the Swift **symbol** names — the `struct` and the `func` — not the
-`@Suite("...")` / `@Test("...")` display strings. Filtering on a display string runs zero tests
-and still exits 0. See `gotchas.md`.
+`--filter` is an unanchored **regex**, and it matches the test's source file **basename** as well as
+the `struct`/`func` symbol names. It does *not* match `@Suite("...")` / `@Test("...")` display
+strings. So `--filter 'CoreTests\.swift'` selects all 21 tests in
+`Tests/ApusKitCoreTests/CoreTests.swift` even though no `CoreTests` type exists, while
+`--filter 'ContentBlock/text round-trips'` runs zero tests and still exits 0. Guard any scoped run:
+
+```bash
+swift test --filter 'ContentBlockTests/textRoundTrips' > run.log 2>&1; echo "EXIT=$?"
+grep -qE 'Test run with [1-9]' run.log || echo "SELECTED NOTHING"
+```
+
+See `gotchas.md`.
 
 ## The CI gates
 

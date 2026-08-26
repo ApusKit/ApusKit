@@ -1,6 +1,6 @@
 # Architecture
 
-Last reviewed: 2026-08-25
+Last reviewed: 2026-08-26
 Source of truth: `Package.swift`, `Sources`
 
 The shape of the code **as built** at M0. TRD §3 is the design this implements; where they
@@ -95,10 +95,12 @@ major version.
 
 ## Not built yet
 
-Typed tools (F2.1–F2.4) are the rest of M1; the JSONL session tree is M2; the hook bus and
-AgentExtension are M3; MCP is M4; workflows are M5. TRD §8 maps each to its milestone. Their
-absence is the plan, not drift. TRD §8 maps each
-to its milestone. Their absence is the plan, not drift.
+The hook bus and `AgentExtension` are M3; MCP is M4; workflows are M5. TRD §8 maps each to its
+milestone. Their absence is the plan, not drift.
+
+`ApusKitSessions` (M2) landed 2026-08-26 and is no longer on this list: the JSONL session tree,
+context rebuild, compaction and the pluggable store all exist. Its *gate* is still open, which is
+a different thing — see `PRD.md` §5.
 
 ## Validation
 

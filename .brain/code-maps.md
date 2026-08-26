@@ -1,6 +1,6 @@
 # Code maps
 
-Last reviewed: 2026-08-25
+Last reviewed: 2026-08-26
 Source of truth: `Sources`, `Tests`
 
 Where code actually lives after M1's typed-tools slice. Only paths that exist today appear in
@@ -29,9 +29,42 @@ backticks; planned targets are named in plain text with the milestone that creat
 | Test fakes | `Tests/Shared` | The `TestSupport` target — every fake, shared by the four test targets that need one |
 | Consumers | `Examples/consumers` | Seven one-product packages proving each target stands alone |
 
-Planned targets, absent today: ApusKitSessions (M2), ApusKitMCP (M4),
-ApusKitWorkflows (M5), plus the Evals, Benchmarks and Examples/apuskit-cli trees. TRD §1 has the
-full intended layout — do not treat its absence here as drift.
+Replace the stale "planned targets" paragraph with:
+
+```
+Planned targets, absent today: ApusKitMCP (M4), ApusKitWorkflows (M5), plus the Evals, Benchmarks
+and Examples/apuskit-cli trees. TRD §1 has the full intended layout — do not treat its absence here
+as drift.
+```
+
+And correct the counts that moved with it: **seven** source targets (≈5 120 lines by `wc -l`, tests
+≈6 540 with `Tests/Shared` at ≈890); the umbrella is **six** `@_exported public import` lines; the
+`TestSupport` target is shared by **five** test targets (`ApusKitWireFormatTests` is still the only
+one that does not depend on it).
+
+Add to the subsystem map:
+
+```
+| Sessions | `Sources/ApusKitSessions` | pi-v3 JSONL session tree: entries, branching, leaf-to-root context rebuild, compaction, `SessionStore` |
+```
+
+Add to the feature map:
+
+```
+| JSONL kernel | `Sources/ApusKitWireFormat/JSONLCodec.swift` | `Tests/ApusKitWireFormatTests/JSONLCodecTests.swift` | `JSONLCodec.decode(_:)` / `.encode(_:)`. `JSONLDecodeResult.trailing` hands back the bytes after the last terminator (`:36`), so an unterminated final line is data, not an error |
+| Session entry model | `Sources/ApusKitSessions/SessionEntry.swift`, `Sources/ApusKitSessions/EntryID.swift`, `Sources/ApusKitSessions/SessionHeader.swift` | `Tests/ApusKitSessionsTests/SessionCodecTests.swift` | pi v3 wire shape — `SessionHeader.currentVersion == 3`. `EntryID` is a validated hex string; `random(using:)` takes an injected generator (DI-1) |
+| Session file codec | `Sources/ApusKitSessions/SessionFileCodec.swift` | `Tests/ApusKitSessionsTests/SessionCodecTests.swift` | `encode(header:entries:)` / `decode(_:)` over `JSONLCodec`; `SessionFileDecodeResult.trailing` carries an unterminated final line back to the caller |
+| Session tree | `Sources/ApusKitSessions/Session.swift` | `Tests/ApusKitSessionsTests/SessionTreeTests.swift` | Branch and fork are both just `append(_:)` with an existing id as `parentID` — nothing is ever rewritten. `history(from:)` is **leaf-to-root** (`:102`); `leaves()` / `children(of:)` are append-ordered (API-4) |
+| Context rebuild | `Sources/ApusKitSessions/ContextRebuild.swift` | `Tests/ApusKitSessionsTests/ContextRebuildTests.swift` | `buildContext(leaf:)` stops at the compaction nearest the leaf — `firstIndex` over a leaf-to-root array (`:32`) — and substitutes `summary` + `retainedTail`. `Session(header:entries:)` has no test: see `gotchas.md` |
+| Compaction | `Sources/ApusKitSessions/Compaction.swift` | `Tests/ApusKitSessionsTests/CompactionTests.swift` | Oldest-first input, unlike the tree walks. `defaultReserve` 16 384 and `defaultRetainedTokens` 20 000 are normative pi numbers, not knobs. The summarizer is an injected `@Sendable` closure (`CompactionSummarizer`), so the target never imports `ApusKitProviders` (PKG-6) and ACC-2's conformable set is not widened |
+| Session store | `Sources/ApusKitSessions/SessionStore.swift`, `Sources/ApusKitSessions/JSONLFileSessionStore.swift` | `Tests/ApusKitSessionsTests/SessionStoreTests.swift` | `SessionStore` is client-conformable (ACC-2). The file store is `public import Foundation` — `URL` is on its public surface, so DEP-2's `internal import` does not apply. `appendEntry` opens `FileHandle(forUpdating:)`, not `forWritingTo:`, because a write-only handle cannot read the last byte back to detect a missing `LF` (`:61`) |
+```
+
+Add to the fakes table:
+
+```
+| `InMemorySessionStore` | actor | a `SessionStore` with no filesystem (`Tests/Shared/InMemorySessionStore.swift`) |
+```
 
 ## Feature map
 
@@ -100,7 +133,7 @@ an app consumer. See `Examples/consumers/mainactor-consumer/Package.swift`.
 
 ## Validation
 
-`swift test` (178 tests / 30 suites as of 2026-08-25). For one test see `commands.md` — the filter syntax has
+`swift test` (counts move every run — read the output rather than trusting a number written here). For one test see `commands.md` — the filter syntax has
 a trap.
 
 ## Open questions

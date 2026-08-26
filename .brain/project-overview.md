@@ -1,6 +1,6 @@
 # Project overview
 
-Last reviewed: 2026-08-25
+Last reviewed: 2026-08-26
 Source of truth: `PRD.md`, `README.md`
 
 Domain vocabulary for agents working here. The product statement and capability list live in
@@ -15,8 +15,11 @@ thing to you as they do to the people who wrote it.
   without the agent loop.
 - It hardcodes no vendor. A consumer supplies the provider; ApusKit supplies the loop, the tool
   system, and (later) sessions, MCP and workflows.
-- Current milestone: M1, in progress. M0's deliverables are complete but its gate stays un-flipped
-  pending an observed CI run (PROG-2). `PRD.md` §5 is the single source of truth for state.
+- Current milestone: M2 landed, M1's gate still open. M0 is complete and its gate is green in CI
+  (run 32883395354, 2026-08-25). M1's code is all landed; only its live-smoke gate (F1.2) remains,
+  and it is credential-blocked rather than code-blocked. M2's ApusKitSessions target landed
+  2026-08-26 with its own gate (SESS-1) deliberately open — no licensed pi v3 file exists here.
+  `PRD.md` §5 is the single source of truth for state.
 
 ## Vocabulary
 
