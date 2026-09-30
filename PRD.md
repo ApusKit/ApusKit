@@ -29,8 +29,8 @@ Each capability has a stable ID (`F*`). Milestones (§4) and progress (§5) refe
 
 ### F3 — Sessions
 - **F3.1** Conversations persist as trees: branch from any point, fork alternative continuations, walk history.
-- **F3.2** **pi interchange:** session files are wire-compatible with pi v3 — a pi session opens in ApusKit and vice versa.
-- **F3.3** Long conversations compact automatically (summary + retained tail) without losing the thread.
+- **F3.2** **pi interchange:** session files are wire-compatible with pi v3 — a session recorded by pi opens in ApusKit, and ApusKit writes it back byte-for-byte, so pi opens what ApusKit writes.
+- **F3.3** Long conversations compact automatically (summary + retained tail) without losing the thread: compaction triggers once the context comes within a **16 384-token reserve** of the model's context window, and keeps roughly the **20 000** most recent tokens verbatim (pi's numbers).
 - **F3.4** Storage is pluggable; a file-based store ships built in.
 
 ### F4 — Agent loop
@@ -38,7 +38,7 @@ Each capability has a stable ID (`F*`). Milestones (§4) and progress (§5) refe
 - **F4.2** **Steering:** the user can inject guidance mid-run; it is applied between turns.
 - **F4.3** Graceful failure: any error ends the run as a readable message — the loop never crashes the host app.
 - **F4.4** Clean abort at any moment.
-- **F4.5** A structured event stream (turns, message deltas, tool activity) for driving UIs and logs.
+- **F4.5** A structured event stream (turns, message deltas, tool activity) for driving UIs and logs. Any number of observers may watch one agent; each is bounded by default, so a slow observer may miss the oldest events rather than grow memory, and lossless delivery is an explicit opt-in.
 
 ### F5 — Extensibility
 - **F5.1** Hook points across the loop lifecycle: block or allow tool calls (permission gates), modify results, observe requests/responses, react to session events — budgets, quotas and telemetry are buildable by consumers.
@@ -74,23 +74,23 @@ Out of scope by design (consumer territory): permission UI · concrete app tools
 
 ## 4. Delivery plan — milestones
 
-Built strictly in order. A milestone is **done** only when its gate passes as an automated, evidence-linked check.
+Built strictly in order. A milestone is **done** only when its gate passes as an automated, evidence-linked check — with one exception: M6's gate is an outside consumer's adoption, which no check can observe, so it is a maintainer attestation in the evidence form its row defines.
 
 | # | Milestone | Delivers | Functional gate |
 |---|---|---|---|
 | M0 | Skeleton | Loop on scripted provider (F4.1/F4.3, F1.5), package + CI up | A scripted multi-turn conversation with one fake tool round-trips in CI |
-| M1 | Real streaming | F1.1–F1.4, F2.1–F2.4 | Live smoke vs Anthropic AND OpenAI AND a consumer-injected custom-endpoint provider (F1.2) |
+| M1 | Real streaming | F1.1–F1.4, F2.1–F2.4 | A consumer-injected custom-endpoint provider streams through the loop (F1.2), and recorded streams for all three built-in wire formats replay correctly — offline, in CI. A live run against real vendors is optional and never gates. |
 | M2 | Sessions | F3.1–F3.4 | A real pi session file replays correctly (F3.2) |
-| M3 | Public 0.1.0 | F4.2/F4.4/F4.5, F5.1–F5.2, F10.1 (`chat`), F10.2, F10.3; public repo + package listing | A clean-room consumer installs the package and runs the README example unmodified |
-| M4 | MCP | F6.1–F6.3, F10.1 (`serve-mcp`) | CLI calls a real external MCP server's tool through the loop over HTTP; a stock MCP client consumes an ApusKit tool server over stdio |
-| M5 | Workflows | F7.1–F7.4 | A red-team workflow (parallel researchers → adversarial judge → synthesis) runs across two different providers using only public API |
-| M6 | Hardening → 1.0 | API freeze driven by real consumers | An external app ships on the released package — including its MCP server and a workflow — without forking it |
+| M3 | Public 0.1.0 | F4.2/F4.4/F4.5, F5.1–F5.2, F10.1 (`chat`), F10.2, F10.3; public repo | A clean-room consumer installs the package and runs the README example unmodified. The package-index listing is an outside dependency the maintainer owns, tracked in §5; it does not gate M3. |
+| M4 | MCP | F6.1–F6.3, F10.1 (`serve-mcp`) | The CLI calls a tool on the MCP project's own reference server through the loop over HTTP, and the MCP project's own reference client consumes an ApusKit tool server over stdio — both headless, launched locally at pinned versions, with no accounts and no GUI client |
+| M5 | Workflows | F7.1–F7.4 | A red-team workflow (parallel researchers → adversarial judge → synthesis) runs across two distinct registered providers — scripted or local ones count, no external accounts needed — using only public API |
+| M6 | Hardening → 1.0 | API freeze driven by real consumers | An external app ships on a tagged ApusKit release — including its MCP server and a workflow — without forking it. Evidence: a §5 entry signed off by the maintainer, naming the consumer, linking its public release, dated. |
 
 **Versioning (user-facing):** 0.x with frequent small releases; minor = features/possible breaks, patch = fixes. **1.0 = the M6 gate**: the API is frozen by real consumption, and breaking changes from then on require proposals and deprecation cycles. Curated `CHANGELOG.md` per release.
 
 ## 5. Progress
 
-> **Single source of truth for project state.** Rules: **PROG-1** update this section in the same PR that completes a deliverable; **PROG-2** a gate flips to ✅ only with a link to the passing check (CI run / test); **PROG-3** the README status section mirrors the *Current status* line below — regenerate it whenever this section changes; **PROG-4** completed items get a date.
+> **Single source of truth for project state.** Rules: **PROG-1** update this section in the same PR that completes a deliverable; **PROG-2** a gate flips to ✅ only with a link to the passing check (CI run / test) — M6 alone flips on the maintainer attestation its §4 row defines; **PROG-3** the README status section mirrors the *Current status* line below — regenerate it whenever this section changes; **PROG-4** completed items get a date.
 
 **Current status: 🔨 M1 in progress — **M0 is complete** (2026-08-25): its gate is green in CI — `AgentGateTests/multiTurnToolRoundTrip` round-trips a scripted multi-turn conversation through a fake tool, including the return leg, in [Tests run 32883395354](https://github.com/ApusKit/ApusKit/actions/runs/32883395354) (165 tests, 28 suites on Swift 6.2). All five §7 workflows — Tests, TSan, Docs, Format and Consumer simulation — are green, including the Tests matrix's nightly-toolchain leg as of [run 32887225558](https://github.com/ApusKit/ApusKit/actions/runs/32887225558): `swift-snapshot-testing` was dropped for plain `#expect` (TEST-4, PKG-5), which removed the AppKit/UIKit surface a text-only assertion never needed and with it the only thing breaking that leg. M1's wire-format foundation (the `ApusKitWireFormat` target, the incremental SSE parser, the partial-JSON accumulator, and the default `URLSessionTransport`) is landed, as are its three built-in `APIImplementation`s — `anthropic-messages` (including `cache_control` prompt-caching passthrough via `LLMRequest.cacheBreakpoints`, `docs/proposals/0002`), `openai-completions`, `openai-responses` (F1.1) — plus the built-in provider catalog (`ModelProvider.anthropic`/`.openAI`/`.google`/`.openRouter`/`.groq`/`.ollama`), `ProviderRegistry` resolution to a streaming `ProviderConnection`, and per-request usage/cost accounting via `Usage.cost(at:)` (F1.4); typed tools (F2.1–F2.4, `docs/proposals/0003`) are also in place — `AnyAgentTool` validates a tool call's arguments against its `Schemable`-derived JSON Schema before executing it and turns a schema violation or a thrown tool failure into an error `ToolResult` instead of a crash (TOOL-1, TOOL-2), oversized tool output is head-truncated at 2000 lines / 50 KB with an offset/limit continuation helper (`headTruncate`, TRUNC-1), tools report progress and observe cancellation against the real `Agent` (F2.4), and a provider-neutral `ToolDefinition` carries a request's tools through the `LLMRequest.tools` field, which all three built-in adapters render on the wire, each omitting the `tools` key entirely when a request carries none (R5). M1's own gate stays open: it needs a live smoke against Anthropic and OpenAI and a consumer-injected custom-endpoint provider (F1.2), which needs credentials, so M1 is not flipped (PROG-2).**
 
@@ -128,29 +128,30 @@ Legend: ⬜ planned · 🔨 in progress · ✅ done
 - [x] JSONL tree v3 codec + context rebuild (F3.1) (2026-08-26)
 - [x] Compaction (F3.3) (2026-08-26)
 - [x] File session store + pluggable store protocol (F3.4) (2026-08-26)
-- [ ] **Gate:** real pi session replays correctly (F3.2)
+- [ ] **Gate:** a session recorded with pi decodes, rebuilds context, and re-encodes byte-for-byte (F3.2)
 
 ### M3 — Public 0.1.0
 - [ ] Steering, abort, event stream surfaced (F4.2, F4.4, F4.5)
 - [ ] Hook bus + `AgentExtension` (F5.1, F5.2)
 - [ ] Reference CLI `chat` (F10.1)
 - [ ] Docs per layer (F10.2) + Conformance Kit (F10.3)
-- [ ] Governance files, public repo, package-index listing
+- [ ] Governance files, public repo
+- [ ] Package-index listing — outside dependency, maintainer-owned; does not gate M3
 - [ ] **Gate:** clean-room install runs README example
 
 ### M4 — MCP
 - [ ] MCP client bridge (F6.1)
 - [ ] MCP server exposure (F6.2) + agent-as-tool (F6.3)
 - [ ] CLI `serve-mcp` (F10.1)
-- [ ] **Gate:** external-server tool call over HTTP + stock client consumes tool server over stdio
+- [ ] **Gate:** tool call on the MCP reference server over HTTP + MCP reference client consumes an ApusKit tool server over stdio (headless, pinned)
 
 ### M5 — Workflows
 - [ ] Step primitives: run/parallel/pipeline/judge/gate (F7.1)
 - [ ] Sub-agents with scoped tools/budgets (F7.2)
 - [ ] Per-step provider selection (F7.3) + session journaling (F7.4)
-- [ ] **Gate:** two-provider red-team workflow on public API only
+- [ ] **Gate:** red-team workflow across two distinct registered providers on public API only
 
 ### M6 — Hardening → 1.0
 - [ ] API freeze (wire enums, Sendable audit) driven by consumer proposals
-- [ ] **Gate:** external app ships on the released package without forking
+- [ ] **Gate:** external app ships on a tagged release without forking — maintainer-attested entry (consumer, release link, date)
 
