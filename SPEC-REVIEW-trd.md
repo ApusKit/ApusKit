@@ -30,7 +30,10 @@ finding: The M2 gate can only be closed by an artefact produced by another proje
 evidence: PRD.md:131 `- [ ] **Gate:** real pi session replays correctly (F3.2)`. Repo corroboration, /Users/gregor/projects/ApusKit/Tests/Fixtures/conformance-baseline.yml: "No real, licensed pi v3 session file exists in this repo, so `Tests/Fixtures/sessions/pi-v3-session.jsonl` is authored from pi's PUBLIC v3 session-file format" and "SESS-1 stays open ... until a real pi v3 file can be substituted for this authored one."
 question: Under what source and licence terms will a real pi v3 session file be obtained for the M2 gate, or must SESS-1's evidence be restated against an artefact this project can produce itself?
 options: [TRD] Name a concrete acquisition path for the artefact (permission/licence from the pi project, or a recorded run of pi itself) and record its provenance requirement in SESS-1 (recommended) / [TRD] Redefine SESS-1's evidence as a reproducible in-repo procedure (e.g. generating a session with pi at verification time) so no third-party artefact needs vendoring
-status: open
+resolution: edit_trd
+proposed: TRD SESS-1 → the real file is a session the maintainer records by running pi (MIT) at a pinned version, committed under Tests/Fixtures/sessions/ with its provenance (pi version, date, command) in conformance-baseline.yml.
+status: pending-edit
+decided: 2026-10-01 gregor
 
 ### spec-002 · major · underspecified
 key: underspecified@ACC-2+F5.1+LOOP-2|- **loop-2** per turn: inject steering → `transformcontext` → convert to llm for
@@ -41,7 +44,10 @@ finding: `transformContext`, `prepareNextTurn` and `shouldStopAfterTurn` are nam
 evidence: TRD.md:180 lists the registration points as "`toolCall` (can block/deny), `toolResult` (can modify), `beforeProviderRequest`, `afterProviderResponse`, `sessionBeforeCompact`, `sessionStart`, `sessionShutdown`, `modelSelect`" — none of the three; ACC-2 at TRD.md:241 names only `APIImplementation`, `Tool`, `SessionStore`, `StreamingHTTPTransport`, `AgentExtension`, hook handler types.
 question: Are `transformContext`, `prepareNextTurn` and `shouldStopAfterTurn` public extension points of the loop, or private internal steps of the Agent actor?
 options: They are additional hook-bus points, registered like the other eight and covered by ACC-3 contracts (recommended) / They are private internals of the loop, and the eight listed hooks remain the whole extension surface
-status: open
+resolution: edit_trd
+proposed: TRD §3.6 hook bus → `transformContext`, `prepareNextTurn`, `shouldStopAfterTurn` join the registration points, covered by ACC-3 contracts.
+status: pending-edit
+decided: 2026-10-01 gregor
 affects: ApusKitAgent, F5.1, M3
 
 ### spec-003 · major · underspecified
@@ -53,7 +59,10 @@ finding: A built-in catalog whose entries carry `models: [ModelInfo]` with prici
 evidence: TRD.md:130 "- **PROV-3** Cost is computed from `ModelInfo` pricing — never hardcoded." reads as forbidding hardcoded prices, while PRD.md:21 requires cost "derived from a model catalog with pricing"; TRD.md:111 `public var models: [ModelInfo] // id, context window, pricing → Usage cost` gives the field but no provenance, and PKG-5 lists no catalog dependency or bundled resource.
 question: Where do the built-in catalog's model IDs, context windows and prices come from — a table compiled into the library, a bundled data file, or a catalog the consumer supplies?
 options: A compiled-in table refreshed by ordinary releases, with a stated SemVer policy for price changes (recommended) / A bundled resource file (pi's models.json analog) loaded at start-up, keeping data out of source
-status: open
+resolution: edit_trd
+proposed: TRD §3.3 → the built-in catalog is a table compiled into ApusKitProviders, refreshed by ordinary releases; model/price data changes are patch-level, never SemVer-major.
+status: pending-edit
+decided: 2026-10-01 gregor
 affects: ApusKitProviders, F1.4, M1
 
 ### spec-004 · major · underspecified
@@ -65,7 +74,10 @@ finding: The Conformance Kit must ship as a product, yet §1's layout — introd
 evidence: TRD.md:29-37 lists the nine Sources targets with no conformance target; TRD.md:40 puts TestSupport under `Tests/Shared/`, which SwiftPM cannot expose as a library product; TRD.md:58 PKG-6 "Dependency DAG (arrows = \"may import\"; anything not listed is forbidden)" has no row for it; `ls Sources` shows the seven targets built so far, none of them a kit.
 question: Where does the Conformance Kit live — a new Sources library target added to the layout and the PKG-6 DAG, or the existing Tests/Shared TestSupport promoted to a shipped product?
 options: A new `Sources/ApusKitConformance` library target with its own row in the §1 layout and the PKG-6 DAG (recommended) / Promote `Tests/Shared` TestSupport to a library product, accepting that TEST-2's fakes become public API under ACC-2
-status: open
+resolution: edit_trd
+proposed: TRD §1 + PKG-6 → new `Sources/ApusKitConformance` library target and product; it may import Core, WireFormat, Providers, Tools, Sessions (never Agent); TestSupport stays internal.
+status: pending-edit
+decided: 2026-10-01 gregor
 affects: M3, F10.3, ACC-3
 
 ### spec-005 · major · underspecified
@@ -77,7 +89,10 @@ finding: Neither document says whose parameters `offset`/`limit` are: the `Tool`
 evidence: TRD.md:137-143 declares `Tool` with only `name`, `description` and `execute(toolCallID:arguments:onUpdate:)` — no offset/limit and no truncation requirement; PRD.md:27 states "Oversized tool output is truncated predictably (2000 lines / 50 KB) with a continuation mechanism" as an unconditional capability.
 question: Is truncation applied automatically by the tool-execution machinery with framework-owned offset/limit continuation parameters, or is it a helper each Tool implementation calls on its own arguments?
 options: The registry truncates every ToolResult and owns the continuation parameters, so the guarantee holds for third-party tools too (recommended) / A public truncation helper plus a documented offset/limit convention that tool authors adopt, making the guarantee apply only to built-ins
-status: open
+resolution: edit_trd
+proposed: TRD TRUNC-1 → the tool-execution machinery truncates every ToolResult and owns the offset/limit continuation, so the guarantee holds for third-party tools.
+status: pending-edit
+decided: 2026-10-01 gregor
 affects: ApusKitTools, F2.3, M1
 
 ### spec-006 · major · underspecified
@@ -89,7 +104,10 @@ finding: Compaction is placed in ApusKitSessions and requires an "iterative LLM 
 evidence: TRD.md:62 `Core, WireFormat ← Sessions` under PKG-6 ("anything not listed is forbidden"); the hook list at TRD.md:180 offers `sessionBeforeCompact` but names no owner of the trigger; PRD.md:33 F3.3 says "Long conversations compact automatically". No LLM-call seam for summarization appears in §3.5, §3.6 or ACC-2's conformable list.
 question: Which target owns the compaction trigger and the summarization call — ApusKitSessions behind an injected summarizer seam, or ApusKitAgent driving a passive Sessions codec?
 options: Sessions owns policy and exposes an injected summarizer + token-counter seam that the Agent wires up (keeps PKG-6 intact, keeps §3.5's placement) (recommended) / ApusKitAgent owns trigger and summarization end to end; §3.5 keeps only the entry shape and the retained-tail rule
-status: open
+resolution: edit_trd
+proposed: TRD §3.5 → ApusKitSessions owns the compaction policy behind injected summarizer and token-counter seams; ApusKitAgent wires them up and never re-implements the policy.
+status: pending-edit
+decided: 2026-10-01 gregor
 affects: ApusKitSessions, ApusKitAgent, M2
 
 ### spec-007 · major · underspecified
@@ -101,7 +119,10 @@ finding: "Budgets" is used as a normative feature in three places but never give
 evidence: PRD.md:54 "- **F7.2** Sub-agents with scoped tools and budgets."; PRD.md:44 F5.1 says "budgets, quotas and telemetry are buildable by consumers", which reads as consumer-built, while WF-2 makes them a shipped part of sub-agents. No definition of a budget unit appears in §3.1's `Usage`, §3.6 or §3.8.
 question: What is a sub-agent budget measured in — tokens, currency cost, or turn/step count — and at which point in the loop is it enforced?
 options: Token budget derived from `Usage`, enforced between turns via the existing hook bus (consistent with F5.1 calling budgets consumer-buildable) (recommended) / Currency-cost budget derived from `ModelInfo` pricing (PROV-3), enforced between turns
-status: open
+resolution: edit_trd
+proposed: TRD WF-2 → a sub-agent budget is a token budget derived from `Usage`, enforced between turns through the hook bus.
+status: pending-edit
+decided: 2026-10-01 gregor
 affects: ApusKitWorkflows, M5, F7.2
 
 ### spec-008 · major · underspecified
@@ -113,7 +134,10 @@ finding: The tool reports every break; "undocumented" implies a waiver channel t
 evidence: TRD.md:236 EVO-2 governs deprecation but names no break-waiver artefact; §1's layout (TRD.md:16-49) contains no allowlist or breakage-baseline file; TEST-3 at TRD.md:267 explicitly rejects an unenforced deviations list for fixtures but provides no analogue here.
 question: By what artefact does an intentional API break become "documented" and let this gate pass — a checked-in allowlist read by the job, a CHANGELOG entry, or a linked proposal?
 options: A checked-in breakage allowlist consumed by the job, so the gate stays mechanical (recommended) / A linked `docs/proposals/` entry plus a maintainer override label on the PR
-status: open
+resolution: edit_trd
+proposed: TRD §7 API breakage row → an intentional break is documented by an entry in a checked-in allowlist the job reads (and a linked proposal), so the gate stays mechanical.
+status: pending-edit
+decided: 2026-10-01 gregor
 affects: TRD§7, M6
 
 ### spec-009 · major · contradicts
@@ -125,7 +149,10 @@ finding: SESS-1 makes `conformance-baseline.yml` the sole channel through which 
 evidence: Tests/Fixtures/conformance-baseline.yml `sessions.deviations` records that entry-kind discriminators on disk are camelCase Swift Codable tags (`branchSummary`, `customMessage`, `modelChange`, `thinkingLevelChange`) while TRD.md:156 names them normatively as `branch_summary, custom_message, model_change, thinking_level_change`; Tests/ApusKitSessionsTests/SessionConformanceTests.swift:24-25 cites SESS-1 "deviations only via conformance-baseline.yml" as licence for that divergence.
 question: May the SESS-1 suite tolerate any recorded divergence from a real pi v3 session file, and if so which artefact declares and enforces that tolerance?
 options: No tolerance: SESS-1 is byte-level wire compatibility with a real pi file and the baseline is provenance only, as TEST-3 says. (recommended) / Tolerance is allowed but must be enforced: a deviation is recorded in the baseline AND pinned by a named test, and TEST-3's "worse than none" clause is narrowed to unenforced lists.
-status: open
+resolution: edit_trd
+proposed: TRD SESS-1 → no tolerance: byte-level compatibility with the recorded pi file; conformance-baseline.yml is provenance only, as TEST-3 says.
+status: pending-edit
+decided: 2026-10-01 gregor
 
 ### spec-010 · major · contradicts
 key: contradicts@M0+PKG-4+TRD§7|## 7. ci gates (all required on every pr unless marked nightly)⇄- [x] first test suites + ci jobs live — test suites green locally, the five §7 
@@ -136,7 +163,10 @@ finding: TRD §7 lists eight non-nightly rows and declares them all required on 
 evidence: TRD.md:292 "| Traits matrix | build with no traits / `NIO` / `MCP` / both | compiles + tests |" versus TRD.md:56 "so a traits-matrix job today would build the identical tree four times and prove nothing."; TRD.md:321 "2. All §7 required CI jobs green; no new warnings (warnings are errors)."; `ls .github/workflows` shows only consumers.yml, docs.yml, format.yml, tests.yml, tsan.yml; docs/ci-deferrals.md defers Soundness, API breakage and Traits matrix to M1/M3/M4.
 question: Are the §7 rows that have no subject yet (Soundness, API breakage, Traits matrix, and the nightly Fuzz and Benchmarks) required on every PR from M0, or required only from the milestone that gives each a subject?
 options: Make §7 milestone-aware: mark each row with the milestone from which it becomes required, so the header's "all required on every PR" and PKG-4's "prove nothing" stop contradicting each other and the PRD's "five" is derivable from the TRD. (recommended) / Keep §7 as written (all eight required now): wire the missing three workflows and reopen M0's "package + CI up" deliverable in PRD §5.
-status: open
+resolution: edit_trd
+proposed: TRD §7 → milestone-aware: each row names the milestone from which it is required; rows without a subject yet are not required before then.
+status: pending-edit
+decided: 2026-10-01 gregor
 
 ### spec-011 · major · contradicts
 key: contradicts@M1+PKG-4+TRD§3.3|both traits are **declared but inert** until their milestone lands (nio: m1's se⇄| m1 real streaming | §3.2 kernels, §3.3 three built-in implementations + transp
@@ -147,7 +177,10 @@ finding: PKG-4 assigns the NIO `AsyncHTTPClientTransport` to M1, but the §8 M1 
 evidence: PRD.md:122 "- [x] Transport seam + default URLSession transport (2026-08-25)" is the only transport item under M1 and the M1 checklist has no NIO line; TRD.md:125 "Shipped transports: `URLSessionTransport` (default, zero deps) and, behind trait `NIO`, `AsyncHTTPClientTransport`." names no milestone; Package.swift declares trait `NIO` but no `async-http-client` dependency.
 question: Does M1 include the `AsyncHTTPClientTransport` behind the `NIO` trait, or is the second transport assigned to a later milestone?
 options: Assign the NIO transport to a named later milestone (and move the Traits-matrix NIO leg's subject with it), leaving M1 on the URLSession transport alone. (recommended) / Keep NIO in M1: add it to the §8 M1 backing row and the PRD M1 deliverables/checklist so the gate is not silently narrower than PKG-4.
-status: open
+resolution: edit_trd
+proposed: TRD PKG-4 / §3.3 / §8 → the NIO `AsyncHTTPClientTransport` belongs to M4 (alongside MCP HTTP); M1 ships URLSessionTransport alone.
+status: pending-edit
+decided: 2026-10-01 gregor
 
 ### spec-012 · major · contradicts
 key: contradicts@M1+PROV-4+TEST-5|| m1 real streaming | §3.2 kernels, §3.3 three built-in implementations + transp⇄| m1 | real streaming | f1.1–f1.4, f2.1–f2.4 | live smoke vs anthropic and opena
@@ -158,7 +191,10 @@ finding: The PRD's M1 gate is a live, credentialed smoke against two real vendor
 evidence: TRD.md:269 "**TEST-5** Live provider suites are `@Suite(.enabled(if: env(\"ANTHROPIC_API_KEY\") != nil))`-style — never CI-blocking."; TRD.md:131 PROV-4 uses `baseURL: <any URL>` (satisfiable by `FixtureTransport`); Tests/Fixtures/conformance-baseline.yml line 19 `provenance: authored-from-vendor-docs` — the fixtures TRD §8 accepts as the gate were not recorded from real vendor streams.
 question: Is M1 done when the offline PROV-4 test and fixture suites are green, or only when a credentialed live smoke against Anthropic, OpenAI and an injected endpoint has run and its run is linked?
 options: [PRD] The gate is the live smoke: define how a never-CI-blocking live suite produces the linkable evidence PROG-2 demands (e.g. a credentialed, manually triggered workflow), and have TRD §8 M1 point at that rather than at PROV-4 + fixtures. (recommended) / [TRD] The gate is PROV-4 + TEST-3 fixtures: relabel the PRD M1 gate accordingly and accept that authored-from-docs fixtures, not real vendors, are what flips M1.
-status: open
+resolution: edit_prd
+proposed: Per prd/spec-001 (maintainer chose offline): PRD M1 gate → PROV-4 test + TEST-3 fixtures green in CI; live smoke non-gating (TEST-5). TRD §8 M1 row already says this.
+status: pending-edit
+decided: 2026-10-01 gregor
 
 ### spec-013 · major · leak_trd
 key: leak_trd@F3.3+TRD§3.5|- **compaction** (numbers are normative, ported from pi): trigger when `contextt
@@ -169,7 +205,10 @@ finding: The TRD fixes two normative, user-visible numbers — when a conversati
 evidence: PRD.md:33 "- **F3.3** Long conversations compact automatically (summary + retained tail) without losing the thread." — no number; yet the PRD does state the analogous truncation limits at PRD.md:27 "truncated predictably (2000 lines / 50 KB)", so product-visible limits are otherwise the PRD's to own.
 question: Do the 16 384 reserve and 20 000 retained-token budgets belong in the PRD as product limits, the way the 2000 lines / 50 KB truncation limits already do?
 options: [PRD] Move the two numbers into F3.3 so every platform compacts identically, and let the TRD cite them (recommended) / [TRD] Keep them as platform-specific defaults and state in F3.3 that the thresholds are implementation-chosen
-status: open
+resolution: edit_prd
+proposed: PRD F3.3 → states the 16 384-token reserve and ~20 000-token retained tail as acceptance numbers; TRD §3.5 cites them.
+status: pending-edit
+decided: 2026-10-01 gregor
 
 ### spec-014 · major · leak_trd
 key: leak_trd@F4.5+TRD§3.6|- **event-2** streams are **bounded by default** (`.bufferingnewest`); an absent
@@ -180,7 +219,10 @@ finding: The TRD decides a user-visible delivery guarantee the PRD never states:
 evidence: PRD.md:41 "- **F4.5** A structured event stream (turns, message deltas, tool activity) for driving UIs and logs." — the PRD states no buffering policy, no loss semantics and no default; the words "bounded by default" and "`.unbounded` is opt-in" appear nowhere in PRD.md (grep: no match for "bounded").
 question: Should the PRD state whether the event stream is lossy or lossless by default, or is the buffering policy the TRD's to choose per platform?
 options: [PRD] State the delivery guarantee for F4.5 in the PRD so every platform's observers behave the same, and keep the buffering mechanism in the TRD (recommended) / [TRD] Keep the policy platform-specific and note in F4.5 that delivery guarantees are implementation-defined
-status: open
+resolution: edit_prd
+proposed: PRD F4.5 → observers are bounded by default (a slow observer may miss the oldest events); lossless delivery is opt-in. TRD EVENT-2 keeps the mechanism.
+status: pending-edit
+decided: 2026-10-01 gregor
 
 ### spec-015 · major · leak_trd
 key: leak_trd@F6.1+F9.1+TRD§3.7|- **client**: `mcptoolsource: agentextension` — connects to an mcp server, lists
@@ -191,7 +233,10 @@ finding: The TRD narrows a stated capability: F6.1 promises connection to any MC
 evidence: PRD.md:48 "- **F6.1** **Client:** connect an agent to any MCP server and use its tools like native ones." and PRD.md:62 lists iOS/iPadOS 17+ as Tier 1 first-class; the PRD's non-goals at PRD.md:73 do not exclude stdio clients on any platform.
 question: Is the stdio-client restriction a product limit on F6.1 that the PRD must state, or a purely Apple-platform consequence the PRD should stay silent about?
 options: [PRD] Record the transport scope of F6.1 in the PRD (which transports are promised, on which tiers) and keep the macOS-only sandbox reasoning in the TRD (recommended) / [TRD] Keep the line as platform-specific, since process spawning is an OS capability, and add nothing to the PRD
-status: open
+resolution: defer
+reopen_when: before M4 is planned
+status: deferred
+decided: 2026-10-01 gregor
 
 ### spec-016 · major · leak_trd
 key: leak_trd@M1+PRD§4+TRD§8|| m1 real streaming | §3.2 kernels, §3.3 three built-in implementations + transp⇄| m1 | real streaming | f1.1–f1.4, f2.1–f2.4 | live smoke vs anthropic and opena
@@ -202,7 +247,10 @@ finding: The PRD states M1's gate as a live smoke against two named vendors plus
 evidence: TRD.md:306 "This table maps each PRD gate to the technical checks that implement it; a milestone is DONE only when its backing checks are green in CI"; TRD.md:269 TEST-5 "Live provider suites are `@Suite(.enabled(if: env(\"ANTHROPIC_API_KEY\") != nil))`-style — never CI-blocking", so the PRD's live-smoke gate is by construction absent from the TRD's green-in-CI set.
 question: Which document defines when M1 is done — the PRD's live-smoke gate, or the TRD's PROV-4-plus-fixtures backing?
 options: [PRD] Keep the gate wording solely in the PRD and have the TRD row cite it without restating a different check (recommended) / [TRD] Change the PRD's M1 gate to the offline check the TRD backs, and record the live smoke as a separate non-gating milestone item
-status: open
+resolution: edit_prd
+proposed: Same edit as trd/spec-012: PRD M1 gate restated as the offline check TRD §8 backs; live smoke recorded as non-gating.
+status: pending-edit
+decided: 2026-10-01 gregor
 
 ### spec-017 · major · external_dep
 key: external_dep@F1.1+M1+TEST-3|│ └── fixtures/ // recorded pi sse transcripts + real pi v3 session files + conf
@@ -213,7 +261,10 @@ finding: The wire-compat suite that backs M1 is specified over transcripts *reco
 evidence: TRD.md:311 "gate = PROV-4 test + conformance fixtures (TEST-3) green for all three implementations". Repo corroboration, /Users/gregor/projects/ApusKit/Tests/Fixtures/conformance-baseline.yml: "TEST-3 names \"recorded pi SSE transcripts\"; none could be obtained under a settled licence, so the transcripts here are authored from each vendor's public streaming documentation to the same event shapes."
 question: Must the conformance transcripts be genuine recordings of third-party traffic, or are transcripts authored from public vendor documentation an accepted substitute?
 options: [TRD] State that authored-from-public-documentation transcripts satisfy TEST-3, with the provenance recorded per fixture (recommended) / [TRD] Require genuine recordings and name the licence/redistribution basis under which vendor stream output may be committed
-status: open
+resolution: edit_trd
+proposed: TRD §1 Fixtures comment + TEST-3 → provider SSE transcripts authored from public vendor documentation satisfy TEST-3 with per-fixture provenance; pi session files are recorded with pi (SESS-1).
+status: pending-edit
+decided: 2026-10-01 gregor
 
 ### spec-018 · major · external_dep
 key: external_dep@F6.2+M4+MCP-2|- **mcp-1** sdk types never appear on apuskit's public api surface — wrap everyt
@@ -224,7 +275,10 @@ finding: The whole of §3.7 — stdio and stateless/stateful HTTP server modes, 
 evidence: TRD.md:199 "- **Client**: `MCPToolSource: AgentExtension` — connects to an MCP server, lists tools, bridges each into an ApusKit `Tool` (schema passthrough; results → `ToolResult`; list-changed notifications refresh the registry). Transports: HTTP first; stdio only on macOS and only toward processes the host app may legitimately reach." PKG-5 (TRD.md:57) names the dependency without a version: "`modelcontextprotocol/swift-sdk` (trait `MCP`)".
 question: Which exact `modelcontextprotocol/swift-sdk` version does M4 target, and what is the fallback if that release does not provide a transport or notification mode §3.7 requires?
 options: [TRD] Name the target SDK version and mark the §3.7 features it is known to supply, so a shortfall is visible before M4 starts (recommended) / [TRD] State that any §3.7 feature the pinned SDK lacks is deferred rather than reimplemented in ApusKit
-status: open
+resolution: defer
+reopen_when: before M4 is planned
+status: deferred
+decided: 2026-10-01 gregor
 
 ### spec-019 · major · external_dep
 key: external_dep@M0+TRD§7|| soundness | `swiftlang/github-workflows` reusable | license headers, format, d
@@ -235,7 +289,10 @@ finding: A gate required on every PR is delegated wholesale to another project's
 evidence: No ref or version accompanies the reusable-workflow reference anywhere in TRD.md (§7 table row and no supporting note), unlike PKG-5's "exact-pin anything 0.x" and MCP-2's "Pin the SDK to an exact version" (TRD.md:57, TRD.md:201). No soundness workflow exists in the repo: `ls /Users/gregor/projects/ApusKit/.github/workflows/` → consumers.yml, docs.yml, format.yml, tests.yml, tsan.yml.
 question: To which pinned ref of `swiftlang/github-workflows` is the Soundness gate bound, and what happens to the gate if that project changes or removes it?
 options: [TRD] Pin the reusable workflow to an explicit tag or commit, consistent with the exact-pin rule already applied to dependencies (recommended) / [TRD] Replace the delegated gate with in-repo jobs that state the checks directly, removing the outside dependency
-status: open
+resolution: edit_trd
+proposed: TRD §7 Soundness row → the reusable workflow is pinned to an exact commit SHA, matching the exact-pin rule.
+status: pending-edit
+decided: 2026-10-01 gregor
 
 ### spec-020 · minor · underspecified
 key: underspecified@LOOP-7+TRD§3.4|- **loop-7** tools execute in parallel by default; a tool may declare a serial `
@@ -317,7 +374,10 @@ finding: A shipped product must be a Sources target that imports Core, Providers
 evidence: TRD.md:40 "│   ├── Shared/                  // TestSupport target: protocol-seam fakes + shared contract checks (TEST-2)" is the only place shared contract checks are placed in the layout; TRD.md:28-37 lists nine Sources targets with no kit; PRD.md:69 "A Conformance Kit: an executable test suite third parties run against their own provider/tool/store implementations."; Tests/Shared/TestSupport.swift:663 "`TEST-6` Conformance Kit will generalise; until that ships".
 question: Where does the Conformance Kit live in the repository layout and the PKG-6 dependency DAG, and which targets may it import?
 options: Add the kit as a named product target in §1 and PKG-6, deciding whether it may import Agent or only the four conformable-protocol targets. (recommended) / Keep the kit inside Tests/Shared, accepting that TEST-6 and F10.3 'ships as a product' cannot hold and must be rewritten as a non-product deliverable.
-status: open
+resolution: edit_trd
+proposed: Same edit as trd/spec-004: ApusKitConformance in §1 and PKG-6, importing only the conformable-protocol targets (not Agent).
+status: pending-edit
+decided: 2026-10-01 gregor
 
 ### spec-028 · major · contradicts
 key: contradicts@M0+PROG-2+TRD§7|## 7. ci gates (all required on every pr unless marked nightly)⇄all five §7 workflows — tests, tsan, docs, format and consumer simulation — are 
@@ -328,7 +388,10 @@ finding: TRD §7 lists eight non-nightly rows and §8 makes M0's backing include
 evidence: TRD.md:310 "| M0 Skeleton | §1 layout, §2 manifest, §3.1 Core, `ScriptedProvider`, loop skeleton (LOOP-1..7 partial), first TEST suites, §7 jobs live |"; TRD.md:306 "a milestone is DONE only when its backing checks are green in CI"; PRD.md:103 "| M0 Skeleton | ✅ |"; `ls .github/workflows` returns exactly consumers.yml docs.yml format.yml tests.yml tsan.yml; docs/ci-deferrals.md defers Soundness and API breakage to M3 and Traits matrix to M1/M4.
 question: Which §7 rows must be live for a milestone's '§7 jobs live' backing to count — every non-nightly row, or only the rows that have a subject at that milestone?
 options: [PRD] Only rows with a subject at that milestone count, and the TRD's §7/§8 state that per-milestone schedule explicitly so 'all required on every PR' no longer contradicts PKG-4 and the M0 record. (recommended) / [TRD] Every non-nightly row is required from M0 onward, so M0 reverts to in-progress until Soundness, API breakage and Traits matrix jobs exist.
-status: open
+resolution: edit_trd
+proposed: Same edit as trd/spec-010: §7 per-row 'required from' milestone; M0's five workflows were the rows with a subject.
+status: pending-edit
+decided: 2026-10-01 gregor
 
 ### spec-029 · major · order
 key: order@F1.1+M1+PKG-4|- [x] transport seam + default urlsession transport (2026-08-25)⇄both traits are **declared but inert** until their milestone lands (nio: m1's se
@@ -339,7 +402,10 @@ finding: The TRD places the NIO `AsyncHTTPClientTransport` inside M1 ('M1's seco
 evidence: TRD.md:125 "Shipped transports: `URLSessionTransport` (default, zero deps) and, behind trait `NIO`, `AsyncHTTPClientTransport`."; PRD.md:125 "- [ ] **Gate:** live smoke vs Anthropic + OpenAI + injected custom-endpoint provider (F1.2)" is the sole open M1 item; Package.swift:36-39 declares only swift-json-schema and swift-docc-plugin — no async-http-client; docs/ci-deferrals.md ties the Traits matrix to "M1 Real streaming (`NIO`, via `AsyncHTTPClientTransport`)".
 question: Is the NIO `AsyncHTTPClientTransport` an M1 deliverable that must land before M1 flips, or does it belong to a later milestone?
 options: [PRD] NIO is not part of M1; the TRD's PKG-4 milestone note and §8 M1 backing are moved to whichever milestone actually carries the second transport. (recommended) / [TRD] NIO is an M1 deliverable; the PRD's M1 checklist gains it and M1 stays open until the trait-gated transport exists.
-status: open
+resolution: edit_trd
+proposed: Same edit as trd/spec-011: NIO transport moves to M4 in PKG-4 and §8.
+status: pending-edit
+decided: 2026-10-01 gregor
 
 ### spec-030 · minor · contradicts
 key: contradicts@F1.5+PKG-7+TEST-2|**test-2** unit tests use protocol-seam fakes from the `testsupport` target (`sc⇄`scriptedprovider` — a deterministic `apiimplementation` playing back scripted e
@@ -402,3 +468,4 @@ status: noted
 ## History
 - 2026-08-26 · full · 204a0fe916e0 @ 71c01a5 · 5 lenses · 26 findings (1 blocker, 18 major) · draft
 - 2026-08-26 · delta · 204a0fe916e0 · 1 lenses · 6 new (0 blocker, 3 major) · 0 confirmed resolved · draft
+- 2026-10-01 · decisions · 204a0fe916e0 · 0 lenses · 23 decided by hand (21 pending-edit, 2 deferred to M4) · draft

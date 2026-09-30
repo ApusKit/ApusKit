@@ -28,7 +28,10 @@ finding: M1's gate requires live traffic to two commercial vendor services and a
 evidence: TRD.md:269 "- **TEST-5** Live provider suites are `@Suite(.enabled(if: env(\"ANTHROPIC_API_KEY\") != nil))`-style — never CI-blocking." TRD.md:311 backs M1 with a different, offline set instead: "gate = PROV-4 test + conformance fixtures (TEST-3) green for all three implementations".
 question: Is the M1 gate a live run against externally hosted vendor services recorded as out-of-CI evidence, or the offline PROV-4/TEST-3 checks the TRD names as its technical backing?
 options: [TRD] Declare the offline PROV-4 + fixture suite as the gating evidence and demote the live vendor smoke to a recorded, non-gating manual run (recommended) / [PRD] Keep the live smoke as the gate and state the out-of-CI evidence form (run log, dated attestation in §5) that satisfies PROG-2 without violating TEST-5
-status: open
+resolution: edit_prd
+proposed: PRD §4 M1 gate → the offline checks CI can run: the PROV-4 consumer-injected custom-endpoint provider test plus the TEST-3 conformance fixtures, green in CI for all three built-in implementations. A live vendor smoke stays an optional, never-gating TEST-5 suite.
+status: pending-edit
+decided: 2026-10-01 gregor
 
 ### spec-002 · blocker · external_dep
 key: external_dep@F6.1+F6.2+M4|| m4 | mcp | f6.1–f6.3, f10.1 (`serve-mcp`) | cli calls a real external mcp serv
@@ -39,7 +42,10 @@ finding: Both halves of the M4 gate depend on software outside the repository �
 evidence: PRD.md:49 "**F6.2** **Server:** expose an app's tools as an MCP server for other AI clients (Claude Desktop and friends)." TRD.md:314 defers the specifics back to the PRD: "| M4 MCP | §3.7 full, `apuskit-cli serve-mcp`; gate checks per PRD (HTTP external-server call + stdio stock-client consumption) |", so neither document names the server or the client.
 question: Which specific external MCP server and which specific stock MCP client constitute the M4 gate, and is either permitted to be a manually driven GUI application?
 options: [PRD] Name a specific, headlessly runnable reference server and reference client for the gate so the check is reproducible by anyone (recommended) / [TRD] Specify the gate against a locally launched conformance server/client from the MCP SDK, keeping the check free of network and account dependencies
-status: open
+resolution: edit_prd
+proposed: PRD §4 M4 gate → both halves run headless against the MCP project's own reference software (reference server over HTTP, SDK/Inspector client over stdio), launched locally at exact-pinned versions — no network services, no accounts, no GUI client; TRD §8 names the pins.
+status: pending-edit
+decided: 2026-10-01 gregor
 
 ### spec-003 · blocker · external_dep
 key: external_dep@M6+PRD§4|| m6 | hardening → 1.0 | api freeze driven by real consumers | an external app s
@@ -50,7 +56,10 @@ finding: The 1.0 gate is satisfiable only by a third party outside this reposito
 evidence: PRD.md:77 "A milestone is **done** only when its gate passes as an automated, evidence-linked check." PRD.md:89 makes the release contingent on it: "**1.0 = the M6 gate**: the API is frozen by real consumption". PRD.md:156 `- [ ] **Gate:** external app ships on the released package without forking`.
 question: What observable, recordable artefact from an outside consumer counts as the M6 gate passing, and who is authorised to declare it?
 options: [PRD] Define the qualifying evidence and the sign-off owner for the external-consumer gate (named consumer, public release reference, dated attestation in §5) (recommended) / [PRD] Replace the third-party-shipping condition with an in-repo proxy that the project can execute (e.g. a consumer scenario built and run from the released package)
-status: open
+resolution: edit_prd
+proposed: PRD §4 M6 gate → a maintainer-attested §5 entry naming the consumer, linking its public release built on a tagged ApusKit release (with MCP server + workflow), dated; the maintainer is the sign-off owner.
+status: pending-edit
+decided: 2026-10-01 gregor
 
 ### spec-004 · major · untestable
 key: untestable@F3.2+M2+SESS-1|- **f3.2** **pi interchange:** session files are wire-compatible with pi v3 — a 
@@ -61,7 +70,10 @@ finding: The "vice versa" half — an ApusKit-written session opening in pi — 
 evidence: TRD.md:160 "- **SESS-1** Wire-compat is a tested guarantee: a real pi v3 session file loads, rebuilds context equivalently, and round-trips losslessly (fixtures in `Tests/Fixtures/`, deviations only via `conformance-baseline.yml`)." — load/rebuild/round-trip only; PKG-5 declares no pi dependency and §7 has no job that executes pi.
 question: How is the ApusKit-to-pi direction of F3.2 proven — by executing a pinned pi build in CI, by a byte-level fixture comparison against pi-produced files, or is the claim narrowed to one direction?
 options: Byte-level comparison against checked-in pi-produced fixtures at a pinned pi version, with the fixture provenance recorded (recommended) / A CI job that runs a pinned pi build over an ApusKit-written session
-status: open
+resolution: edit_trd
+proposed: TRD SESS-1 → byte-level: a session recorded by running pi (MIT) at a pinned version is committed with provenance; ApusKit decodes it, rebuilds context, and re-encodes it byte-identically, which is the ApusKit→pi direction.
+status: pending-edit
+decided: 2026-10-01 gregor
 affects: M2, ApusKitSessions
 
 ### spec-005 · major · untestable
@@ -73,7 +85,10 @@ finding: This gate is an event in a third party's release process, not an observ
 evidence: PRD.md:77 "Built strictly in order. A milestone is **done** only when its gate passes as an automated, evidence-linked check."; PROG-2 at PRD.md:93 requires "a link to the passing check (CI run / test)" — an external shipment produces neither.
 question: What observable stands in for M6's external-adoption gate — a maintainer-attested evidence link, or an in-repo proxy such as a full-stack consumer example built in CI?
 options: Keep external adoption as the product signal but define the attestation artefact that flips M6, exempting it from the automated-check rule (recommended) / Replace it with an in-repo proxy consumer (MCP server + workflow, released-package dependency) that CI builds
-status: open
+resolution: edit_prd
+proposed: Same edit as prd/spec-003: M6 is flipped by the maintainer-attested adoption entry, exempted from the automated-check rule by name.
+status: pending-edit
+decided: 2026-10-01 gregor
 affects: M6, PROG-2
 
 ### spec-006 · major · external_dep
@@ -85,7 +100,10 @@ finding: The M3 deliverable depends on acceptance by an outside index (the TRD n
 evidence: TRD.md:313 "| M3 Public 0.1.0 | hook bus + `AgentExtension` (§3.6), DOC-1..4, Conformance Kit (TEST-6), `apuskit-cli chat` (DOC-2), governance files, SPI listing |"; PRD.md:138 "- [ ] Governance files, public repo, package-index listing". The repo already carries the index-side config: /Users/gregor/projects/ApusKit/.spi.yml lists documentation_targets, but nothing states who submits or owns the listing.
 question: Is third-party acceptance of the package-index listing part of the M3 gate, or a post-milestone follow-up that does not block M3?
 options: [PRD] Separate the index listing from the M3 gate and track it as an outside-dependency task with its own owner (recommended) / [PRD] Keep the listing inside M3 and state what evidence proves it (index URL, accepted submission reference)
-status: open
+resolution: edit_prd
+proposed: PRD §4 M3 → the package-index listing leaves the gate and becomes an outside-dependency task owned by the maintainer, tracked in §5 but not blocking M3.
+status: pending-edit
+decided: 2026-10-01 gregor
 
 ### spec-007 · major · external_dep
 key: external_dep@F7.3+M5+WF-3|| m5 | workflows | f7.1–f7.4 | a red-team workflow (parallel researchers → adver
@@ -96,7 +114,10 @@ finding: The M5 gate turns on "two different providers" without saying whether t
 evidence: TRD.md:315 restates it without resolving the ambiguity: "| M5 Workflows | §3.8 full (WF-1..4); gate = two-provider red-team workflow on public API, journaled (WF-1) |". F1.5 (PRD.md:22) establishes an offline provider exists: "A deterministic scripted provider so agents can be developed and tested with no network and no API keys."
 question: Does the M5 gate require two live external vendor services, or do two distinct registered providers of any kind (including scripted or local) satisfy it?
 options: [PRD] Specify that two distinct registered providers of any kind satisfy the gate, keeping M5 free of external accounts (recommended) / [PRD] Require two live vendor services and state the out-of-CI evidence form, matching whatever M1's live smoke resolves to
-status: open
+resolution: edit_prd
+proposed: PRD §4 M5 gate → two distinct registered providers of any kind (scripted or local included) satisfy it; no external accounts.
+status: pending-edit
+decided: 2026-10-01 gregor
 
 ### spec-008 · minor · leak_prd
 key: leak_prd@PRD§5+PROG-1|**current status: 🔨 m1 in progress — **m0 is complete** (2026-08-25): its gate 
@@ -117,8 +138,29 @@ finding: An external app shipping is a human observation, not an automated check
 evidence: PRD.md:93 "**PROG-2** a gate flips to ✅ only with a link to the passing check (CI run / test)"; PRD.md:89 "**1.0 = the M6 gate**"; TRD.md:316 backs M6 only with enum/Sendable freezes, naming no check that could be automated.
 question: Is the M6 gate exempt from the 'automated, evidence-linked check' rule, or must it be restated as something CI can observe?
 options: Declare M6 (and 1.0) a human-judged gate with its own evidence form, carving it out of PRD §4's automation rule and PROG-2. (recommended) / Restate the M6 gate as an automatable check (for example a consumer-simulation style build of a named external package) so the §4 rule holds uniformly.
-status: open
+resolution: edit_prd
+proposed: PRD §4 rule → every gate is an automated, evidence-linked check except M6, which is human-attested with the evidence form defined in its row; PROG-2 gains the same carve-out.
+status: pending-edit
+decided: 2026-10-01 gregor
+
+### spec-010 · major · order
+key: order@PRD§4+M1+M2|built strictly in order.⇄- [x] jsonl tree v3 codec + context rebuild (f3.1) (2026-08-26)
+where: PRD.md:77 ⇄ PRD.md:128
+refs: PRD§4, M1, M2
+source: ASM-4 of 2026-08-25-m2-sessions (added by hand; the consistency lens missed it twice)
+quote: Built strictly in order. ⇄ - [x] JSONL tree v3 codec + context rebuild (F3.1) (2026-08-26)
+finding: §4 says milestones are built strictly in order, yet M2's deliverables landed while M1's gate was still open.
+evidence: PRD.md:77 "Built strictly in order."; §5 records M1 🔨 and every M2 deliverable [x] dated 2026-08-26.
+question: May a later milestone's deliverables land while an earlier milestone's gate is blocked on an external dependency?
+options: Yes — gates flip in order, work may overlap when an earlier gate waits on something outside the repository (recommended) / No — reopen M2's deliverables until M1 flips
+resolution: assume
+wins: PRD-internal
+assumption: Gates flip strictly in order; deliverables of the next milestone may land while an earlier gate waits on something outside the repository. The maintainer explicitly allowed M2 work while M1 was credential-blocked.
+status: assumed
+decided: 2026-10-01 gregor
+affects: M1, M2
 
 ## History
 - 2026-08-26 · full · 9ab9319b1d8e · 4 lenses · 8 findings (3 blocker, 4 major) · draft
 - 2026-08-26 · delta · 9ab9319b1d8e · 1 lenses · 1 new (0 blocker, 1 major) · 0 confirmed resolved · draft
+- 2026-10-01 · decisions · 9ab9319b1d8e · 0 lenses · 8 decided by hand (pending-edit), spec-010 added (ASM-4, assumed) · draft
