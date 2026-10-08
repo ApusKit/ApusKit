@@ -1,6 +1,6 @@
 # Gotchas
 
-Last reviewed: 2026-08-26
+Last reviewed: 2026-10-08
 Source of truth: `docs/ci-deferrals.md`, `.github/workflows`, git history
 
 Traps that already cost someone time. Every entry stays — they exist to stop rediscovery.
@@ -674,3 +674,15 @@ and assuming the compiler will flag a witness that silently drops it.
 
 Status: the `JSONLFileSessionStore` instance that exposed this is fixed — all four witnesses
 now carry an explicit `@concurrent` (2026-08-26). The rule stands for every future conformance.
+
+## A green Tests run is gate evidence only if the gate's suites appear in its log
+
+Symptom: `gh run watch --exit-status` returns 0 for a Tests run, but that alone does not show the
+gate's tests executed — a filtered or skipped suite still exits green.
+Evidence: M1 flip, Tests run 37778806283 on `b1b8df4` (2026-10-08)
+Impact: PROG-2 flips a gate on a CI link; a link to a run that never executed the gate's suites
+is false evidence.
+Do: before citing a run, `gh run view <id> --log | grep 'Suite "<name>" passed'` for each gate
+suite (for M1: the PROV-4 suite and the three adapters' fixture-conformance suites) and quote the
+`Test run with N tests in M suites` line.
+Avoid: citing a run because its badge is green.

@@ -1,6 +1,6 @@
 # Architecture
 
-Last reviewed: 2026-08-26
+Last reviewed: 2026-10-08
 Source of truth: `Package.swift`, `Sources`
 
 The shape of the code **as built** at M0. TRD §3 is the design this implements; where they
@@ -33,6 +33,11 @@ The full permitted DAG is PKG-6 in TRD §2. Two edges are hard constraints: no l
 imports `ApusKitAgent`, and `ApusKitAgent` never imports the (future) MCP or Workflows targets.
 `ApusKitWireFormat` sits strictly between Core and Providers and is the **only** target where
 typed `throws` is permitted (WIRE-1) — `SSEParser.feed` is `throws(SSEParseError)`.
+
+`ApusKitWireFormat` earns its own target (settled 2026-08-26): it holds three kernels (SSE,
+partial-JSON, JSONL), and the JSONL kernel is consumed by `ApusKitSessions`, which is not
+`ApusKitProviders`. Merging WireFormat into Providers would force Sessions to import the provider
+layer, which PKG-6 forbids. `ApusKitSessions` depends on Core and WireFormat only.
 
 Each target ships as its own library product, so a consumer may take the provider layer alone and
 never touch the loop. `Examples/consumers` is the executable proof, one package per product.

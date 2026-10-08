@@ -1,6 +1,6 @@
 # ApusKit Agent Brain
 
-Last reviewed: 2026-08-26
+Last reviewed: 2026-10-08
 Source of truth: `AGENTS.md`, `TRD.md`, `PRD.md`
 
 Durable project knowledge for coding agents. Read this page first, then only the page your task
@@ -46,9 +46,10 @@ before relying on it. When unsure whether a fact is durable, add it to
 - Stack: SwiftPM, `swift-tools-version: 6.2`, Swift 6 language mode. macOS 14+ / iOS 17+ /
   macCatalyst 17+ / tvOS 17+ / visionOS 1+.
 - Branch: `main` (single branch; no integration/production split).
-- Milestone: M2 code landed 2026-08-26; M1's live-smoke gate (F1.2) and M2's pi-replay gate
-  (F3.2/SESS-1) are both open, each blocked on an external artifact rather than on code.
-  M0 is complete with a green CI link. `PRD.md` §5 is authoritative.
+- Milestone: M0 and M1 complete — M1's offline gate (PROV-4 + TEST-3 fixture replay for all
+  three implementations) flipped 2026-10-08 on Tests run 37778806283. M2 code is landed; its
+  gate (F3.2/SESS-1) waits on a maintainer-recorded pi session. M3 is next. `PRD.md` §5 is
+  authoritative.
 
 ## Validation quick links
 

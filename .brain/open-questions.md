@@ -1,17 +1,12 @@
 # Open questions
 
-Last reviewed: 2026-08-26
+Last reviewed: 2026-10-08
 Source of truth: this file
 
 Unresolved decisions that affect implementation. Add here instead of inventing certainty. When a
 question is settled, move the answer to the page that owns it (see `owner-page-taxonomy.md`) and
 delete the question.
 
-- [x] **Does ApusKitWireFormat earn its own target?** *Resolved 2026-08-26: yes.* It now holds
-      three kernels (SSE, partial-JSON, JSONL), and the JSONL one is consumed by `ApusKitSessions`
-      — a target that is not `ApusKitProviders`. Two unrelated consumers across two milestones is
-      the split paying for itself; a merged WireFormat+Providers would have forced Sessions to
-      import the provider layer, which PKG-6 forbids. Move to `architecture.md` and delete.
 - [ ] **Should the nightly fuzz workflow land with the SSE and partial-JSON kernels alone?**
       `docs/ci-deferrals.md` names M1 as what gives the row a subject. As of 2026-08-26 all three
       kernels exist — SSE, partial-JSON and JSONL — so the row finally has its full subject and the
@@ -25,7 +20,8 @@ delete the question.
       obtained, so `Tests/Fixtures/sessions/pi-v3-session.jsonl` was authored 2026-08-26 from pi's
       public v3 format alongside this repo's own codec, recorded as
       `provenance: authored-from-pi-source`. **The question that remains is narrower and is the
-      only thing blocking M2's gate:** can a real, licensed pi v3 session file be obtained? Until
+      only thing blocking M2's gate:** can a real, licensed pi v3 session file be obtained? The
+      expected route is a session the maintainer records with pi (SESS-1). Until
       one is, `SessionConformanceTests` proves the fixture is self-consistent with the codec it was
       authored beside — not that either matches real pi output.
 - [ ] **Should PKG-2 keep declaring `.tvOS(.v17)` and `.visionOS(.v1)`?** Neither has a plausible
