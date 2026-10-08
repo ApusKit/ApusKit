@@ -26,9 +26,11 @@ extension Agent {
       }
     }
 
-    // Idle from here on, with no suspension point between the empty-queue
-    // check above and `.agentEnd` (`LOOP-1`, `EVENT-3`): a `run(_:)` served
-    // after this point starts a fresh run instead of joining this one.
+    // Idle from here on. Both exits from the loop above, an empty queue or
+    // an abort (`LOOP-6`), reach this line with no suspension point after
+    // the run's decision to stop and before `.agentEnd` (`LOOP-1`,
+    // `EVENT-3`). So a `run(_:)` served after this point starts a fresh run
+    // instead of joining this one.
     runningTask = nil
     runEndingProbe?(self)
     emit(.agentEnd(lastMessage))

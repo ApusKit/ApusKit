@@ -473,10 +473,11 @@ struct AgentGateTests {
     )
 
     // The seam runs synchronously on the actor inside the drain's final
-    // stretch. A `Task` created there with the agent's isolation is
-    // enqueued directly on the actor (Swift Evolution SE-0431), so it runs after the drain
-    // task completes but strictly before the first caller resumes from
-    // `await task.value` — the exact window, every time, with no timing.
+    // stretch. A `Task {}` created there inherits the caller's isolation —
+    // here the `isolated Agent` parameter it captures — so its first job is
+    // enqueued on the actor itself. It therefore runs after the drain task
+    // completes but strictly before the first caller resumes from
+    // `await task.value`: the exact window, every time, with no timing.
     let (secondRuns, secondRunsContinuation) = AsyncStream<Task<AssistantMessage, Never>>
       .makeStream()
     await agent.setRunEndingProbe { agent in
