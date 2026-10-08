@@ -237,6 +237,10 @@ answer, and this draft defers to it.
 
 ### Existing race in `run(_:)`
 
+**Status: fixed** in `2f993b5` (the drain clears `runningTask` itself),
+with `45a7f9f` adding a second regression test. The rest of this section
+records the defect as it was found.
+
 Found by reading `Agent.swift:107-118`, not yet by a reproducing test.
 `runningTask` is reset to `nil` only after the first caller resumes from
 `await task.value` (line 117). Because actor calls interleave, a second
