@@ -53,7 +53,7 @@ public struct AnyAgentTool: Sendable {
           arguments: arguments,
           onUpdate: onUpdate
         )
-        return AnyAgentTool.truncatingOutput(of: result)
+        return result
       } catch {
         return ToolResult(
           content: [.text("Tool \"\(tool.name)\" failed: \(error)")],
@@ -72,13 +72,21 @@ public struct AnyAgentTool: Sendable {
   /// validation failure, argument decoding failure, and any error thrown
   /// from the wrapped tool's `execute` all become an error `ToolResult`
   /// instead of propagating to the caller.
+  ///
+  /// Per `TRUNC-1`, every result leaving here — success or error — has
+  /// each text block head-truncated at 2000 lines / 50 KB. This is the one
+  /// call every registered tool passes through, so a `Tool` conformer gets
+  /// the cap without cooperating.
   @concurrent
   public func execute(
     toolCallID: String,
     argumentsJSON: String,
     onUpdate: @Sendable (ToolUpdate) -> Void
   ) async -> ToolResult {
-    await run(toolCallID, argumentsJSON, onUpdate)
+    // TRUNC-1 applies to EVERY ToolResult, so truncate here rather than on
+    // `run`'s success path alone: an error result echoes a thrown error's
+    // description or a schema violation, and neither is bounded.
+    AnyAgentTool.truncatingOutput(of: await run(toolCallID, argumentsJSON, onUpdate))
   }
 
   /// Flattens a validation failure into one human-readable line per

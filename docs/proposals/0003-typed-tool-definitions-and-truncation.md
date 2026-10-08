@@ -172,7 +172,10 @@ cannot advance — consistent with `TRUNC-1` leaving the spilling of an
 oversized payload to the consumer.
 
 `AnyAgentTool.execute` applies `headTruncate` to every text content
-block of a tool's result before returning it, recording `truncated`,
+block of every result it returns — a tool's own result and the error
+results built from a schema violation or a thrown error alike, since
+`TRUNC-1` covers every `ToolResult` and neither error text is bounded —
+recording `truncated`,
 `originalLineCount`, and `originalByteCount` in `ToolResult.details`
 only when truncation actually occurred — so an unaffected result carries
 no extra bookkeeping, and a truncated one carries exactly what a caller

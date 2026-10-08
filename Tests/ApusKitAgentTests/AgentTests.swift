@@ -673,3 +673,111 @@ struct AgentGateTests {
     #expect(observedCancelled)
   }
 }
+
+/// An error whose description spans many lines, so a tool throwing it
+/// produces an oversized error `ToolResult`.
+private struct VerboseToolError: Error, CustomStringConvertible {
+  let description: String
+}
+
+/// A raw `Tool` that always throws a `VerboseToolError` carrying `message`.
+private struct VerboseThrowingTool: Tool {
+  typealias Arguments = ThrowingTool.Arguments
+
+  let name = "verbose_throwing_tool"
+  let description = "Throws an error with a very long description."
+  let message: String
+
+  func execute(
+    toolCallID: String,
+    arguments: Arguments,
+    onUpdate: @Sendable (ToolUpdate) -> Void
+  ) async throws -> ToolResult {
+    throw VerboseToolError(description: message)
+  }
+}
+
+/// Runs one scripted tool call to `toolName` through the real `Agent`, with
+/// `tool` registered as a raw `Tool` conformer (the registry erases it, not
+/// the test), and returns the `ToolResultMessage` the model is sent back.
+private func toolResultSentToModel(
+  toolName: String, registering tool: some Tool
+) async throws -> ToolResultMessage {
+  let log = RequestLog()
+  let provider = RequestRecordingProvider(
+    scripts: [
+      ScriptedTurn.toolCall(id: "call_1", name: toolName, argumentsJSON: #"{"value":"hi"}"#),
+      ScriptedTurn.text("all done"),
+    ],
+    log: log
+  )
+  var registry = ToolRegistry()
+  registry.register(tool)
+
+  // Force-unwrap justified: "https://example.invalid" is a fixed, valid URL literal.
+  // swift-format-ignore: NeverForceUnwrap
+  let baseURL = URL(string: "https://example.invalid")!
+  let agent = Agent(
+    apiImplementation: provider,
+    connection: ProviderConnection(
+      baseURL: baseURL, auth: .none, transport: NeverCalledTransport()),
+    model: "test-model",
+    tools: registry
+  )
+
+  _ = await agent.run(UserMessage(content: [.text("go")]))
+
+  let requests = await log.requests
+  let secondRequest = try #require(requests.last)
+  return try #require(toolResults(in: secondRequest).first)
+}
+
+/// `TRUNC-1` pinned at the loop level: whatever a tool returns, the model
+/// is sent at most 2000 lines / 50 KB of it, without the tool cooperating.
+@Suite("TRUNC-1 through the agent loop")
+struct AgentTruncationTests {
+  @Test("TRUNC-1: a raw Tool's output over 2000 lines reaches the model head-truncated")
+  func rawToolOutputOverLineCapIsTruncated() async throws {
+    let output = (1...2500).map { "line \($0)" }.joined(separator: "\n")
+    let tool = RecordingTool(result: ToolResult(content: [.text(output)]))
+
+    let result = try await toolResultSentToModel(toolName: "recording_tool", registering: tool)
+
+    let sent = text(of: result.content)
+    #expect(sent.components(separatedBy: "\n").count == 2000)
+    #expect(sent.hasPrefix("line 1\n"))
+    #expect(sent.hasSuffix("\nline 2000"))
+    #expect(!result.isError)
+  }
+
+  @Test("TRUNC-1: a raw Tool's output over 50 KB in a few lines reaches the model byte-capped")
+  func rawToolOutputOverByteCapIsTruncated() async throws {
+    // Four 20 KB lines: far under the line cap, 80 KB over the byte cap.
+    let output = (0..<4).map { _ in String(repeating: "x", count: 20_000) }
+      .joined(separator: "\n")
+    let tool = RecordingTool(result: ToolResult(content: [.text(output)]))
+
+    let result = try await toolResultSentToModel(toolName: "recording_tool", registering: tool)
+
+    let sent = text(of: result.content)
+    #expect(sent.utf8.count <= 50_000)
+    #expect(sent.components(separatedBy: "\n").count == 2)
+  }
+
+  @Test("TRUNC-1: an oversized error from a throwing tool reaches the model head-truncated")
+  func oversizedThrownErrorIsTruncated() async throws {
+    // Regression (TEST-7): AnyAgentTool truncated only the success path, so
+    // an error result built from a thrown error's description — or from a
+    // schema violation — reached the model at full size.
+    let message = (1...3000).map { "detail \($0)" }.joined(separator: "\n")
+    let tool = VerboseThrowingTool(message: message)
+
+    let result = try await toolResultSentToModel(
+      toolName: "verbose_throwing_tool", registering: tool)
+
+    let sent = text(of: result.content)
+    #expect(result.isError)
+    #expect(sent.components(separatedBy: "\n").count == 2000)
+    #expect(sent.hasPrefix("Tool \"verbose_throwing_tool\" failed: detail 1\n"))
+  }
+}
