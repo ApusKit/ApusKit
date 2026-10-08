@@ -398,3 +398,173 @@ struct CompactionTests {
     }
   }
 }
+
+/// Records every message the injected token counter is asked about, and
+/// answers from a fixed per-text table so a fixture's token totals are
+/// spelled out next to its messages.
+///
+/// An actor rather than a lock-protected var, per `CC-4`.
+private actor RecordingTokenCounter {
+  private let table: [String: Int]
+  private(set) var callCount = 0
+
+  init(_ table: [String: Int]) {
+    self.table = table
+  }
+
+  func count(_ message: SessionMessage) -> Int {
+    callCount += 1
+    return table[text(of: message)] ?? 0
+  }
+}
+
+private struct TokenCounterError: Error, Sendable, Equatable {}
+
+/// The concatenated text blocks of `message`.
+private func text(of message: SessionMessage) -> String {
+  let content: [ContentBlock]
+  switch message {
+  case .user(let message): content = message.content
+  case .assistant(let message): content = message.content
+  case .toolResult(let message): content = message.content
+  }
+  return content.compactMap { block in
+    if case .text(let text) = block { return text }
+    return nil
+  }.joined()
+}
+
+/// A deterministic one-line-per-field dump of a compaction outcome and
+/// the messages its summarizer saw (`TEST-4`).
+private func dump(_ kind: SessionEntryKind?, summarized: [SessionMessage]) -> String {
+  guard let kind else { return "no compaction" }
+  guard case .compaction(let summary, let retainedTail, _) = kind else {
+    return "unexpected \(kind)"
+  }
+  return """
+    summarized: \(summarized.map(text(of:)).joined(separator: " "))
+    retained: \(retainedTail.map(text(of:)).joined(separator: " "))
+    summary: \(String(reflecting: summary))
+    """
+}
+
+extension CompactionTests {
+  /// The F3.3 fixture at the normative boundary: a 200 000-token window,
+  /// pi's 16 384 reserve (trigger budget 183 616) and pi's 20 000
+  /// retained tokens, met by `m0` plus nine 3 000-token messages.
+  fileprivate static func normativeFixture(
+    firstMessageTokens: Int
+  ) -> (messages: [SessionMessage], table: [String: Int]) {
+    let names = (0..<10).map { "m\($0)" }
+    var table = Dictionary(uniqueKeysWithValues: names.map { ($0, 3_000) })
+    table["m0"] = firstMessageTokens
+    return (names.map(message), table)
+  }
+
+  @Suite("Compaction.compactIfNeeded")
+  struct CompactIfNeededTests {
+    private static func replacedThroughID() -> EntryID {
+      var generator = SeededGenerator(state: 7)
+      return EntryID.random(using: &generator)
+    }
+
+    @Test("a context exactly at window minus the 16 384 reserve is left alone")
+    func atTheNormativeBudgetDoesNotCompact() async throws {
+      // 156_616 + 9 * 3_000 == 183_616 == 200_000 - 16_384.
+      let fixture = CompactionTests.normativeFixture(firstMessageTokens: 156_616)
+      let counter = RecordingTokenCounter(fixture.table)
+      let recorder = CapturingSummarizer()
+
+      let kind = try await Compaction.compactIfNeeded(
+        messages: fixture.messages,
+        contextWindow: 200_000,
+        replacedThrough: Self.replacedThroughID(),
+        summaryTokenBudget: 200,
+        countTokens: { await counter.count($0) },
+        summarize: { await recorder.record($0) }
+      )
+
+      #expect(dump(kind, summarized: await recorder.seen) == "no compaction")
+      #expect(await counter.callCount == 10)
+    }
+
+    @Test("one token over the budget compacts, retaining pi's 20 000 recent tokens")
+    func overTheNormativeBudgetCompactsWithTheNormativeTail() async throws {
+      let fixture = CompactionTests.normativeFixture(firstMessageTokens: 156_617)
+      let counter = RecordingTokenCounter(fixture.table)
+      let recorder = CapturingSummarizer()
+      let replacedThrough = Self.replacedThroughID()
+
+      let kind = try await Compaction.compactIfNeeded(
+        messages: fixture.messages,
+        contextWindow: 200_000,
+        replacedThrough: replacedThrough,
+        summaryTokenBudget: 200,
+        countTokens: { await counter.count($0) },
+        summarize: { await recorder.record($0) }
+      )
+
+      // Retaining 20_000 from the tail takes the last seven (21_000).
+      #expect(
+        dump(kind, summarized: await recorder.seen) == """
+          summarized: m0 m1 m2
+          retained: m3 m4 m5 m6 m7 m8 m9
+          summary: "ok"
+          """
+      )
+      guard case .compaction(_, _, let through) = kind else {
+        Issue.record("expected a .compaction entry kind, got \(String(describing: kind))")
+        return
+      }
+      #expect(through == replacedThrough)
+      #expect(await counter.callCount == 10)
+    }
+
+    @Test("a token counter that throws aborts before the summarizer runs")
+    func throwingCounterPropagates() async throws {
+      let summarizer = ScriptedSummarizer([])
+
+      await #expect(throws: TokenCounterError.self) {
+        try await Compaction.compactIfNeeded(
+          messages: [message("m0")],
+          contextWindow: 200_000,
+          replacedThrough: Self.replacedThroughID(),
+          summaryTokenBudget: 200,
+          countTokens: { _ in throw TokenCounterError() },
+          summarize: { try await summarizer.next($0) }
+        )
+      }
+      #expect(await summarizer.callCount == 0)
+    }
+  }
+
+  @Suite("Compaction.compact(countTokens:)")
+  struct CompactWithCounterTests {
+    @Test("a forced compaction measures messages with the injected counter")
+    func forcedCompactionUsesTheCounter() async throws {
+      // Under the trigger budget, yet `compact` compacts anyway — it is
+      // the unconditional entry point, and still owns the cut policy.
+      let fixture = CompactionTests.normativeFixture(firstMessageTokens: 1_000)
+      let counter = RecordingTokenCounter(fixture.table)
+      let recorder = CapturingSummarizer()
+      var generator = SeededGenerator(state: 11)
+
+      let kind = try await Compaction.compact(
+        messages: fixture.messages,
+        replacedThrough: EntryID.random(using: &generator),
+        summaryTokenBudget: 200,
+        countTokens: { await counter.count($0) },
+        summarize: { await recorder.record($0) }
+      )
+
+      #expect(
+        dump(kind, summarized: await recorder.seen) == """
+          summarized: m0 m1 m2
+          retained: m3 m4 m5 m6 m7 m8 m9
+          summary: "ok"
+          """
+      )
+      #expect(await counter.callCount == 10)
+    }
+  }
+}

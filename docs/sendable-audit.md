@@ -105,10 +105,11 @@ public type.
 | `SessionStore` | protocol | explicit (protocol refines `Sendable`) |
 | `JSONLFileSessionStore` | struct | implicit (conforms to `SessionStore: Sendable`; its only stored property, `directoryURL: URL`, is `Sendable`) |
 
-`CompactionSummarizer` (a `public typealias` for a `@Sendable` closure
-type) is not a nominal type and so has no row of its own — the
-`@Sendable` that makes it safe to pass to `Compaction.compact` is
-already spelled in the alias itself.
+`CompactionSummarizer` and `CompactionTokenCounter` (`public typealias`es
+for `@Sendable` closure types) are not nominal types and so have no row
+of their own — the `@Sendable` that makes them safe to pass to
+`Compaction.compact` and `Compaction.compactIfNeeded` is already spelled
+in each alias itself.
 
 ## ApusKitAgent
 

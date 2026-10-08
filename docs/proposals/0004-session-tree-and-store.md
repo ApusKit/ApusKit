@@ -264,6 +264,56 @@ import `ApusKitProviders` (`PKG-6`), and a closure is also not one of
 `ACC-2`'s closed conformable protocols, so there is nothing to add to
 that set for this.
 
+#### Amendment (2026-10-08): the token-counter seam
+
+```swift
+public typealias CompactionTokenCounter =
+  @Sendable (SessionMessage) async throws -> Int
+
+extension Compaction {
+  @concurrent
+  public static func compact(
+    messages: [SessionMessage],
+    replacedThrough: EntryID,
+    retainedTokens: Int = defaultRetainedTokens,
+    summaryTokenBudget: Int,
+    maxAttempts: Int = defaultMaxAttempts,
+    countTokens: CompactionTokenCounter,
+    summarize: CompactionSummarizer
+  ) async throws -> SessionEntryKind
+
+  @concurrent
+  public static func compactIfNeeded(
+    messages: [SessionMessage],
+    contextWindow: Int,
+    replacedThrough: EntryID,
+    reserve: Int = defaultReserve,
+    retainedTokens: Int = defaultRetainedTokens,
+    summaryTokenBudget: Int,
+    maxAttempts: Int = defaultMaxAttempts,
+    countTokens: CompactionTokenCounter,
+    summarize: CompactionSummarizer
+  ) async throws -> SessionEntryKind?
+}
+```
+
+`§3.5` (amended 2026-10-01) puts the *whole* compaction policy in
+`ApusKitSessions` behind two injected seams, a summarizer and a token
+counter, so `ApusKitAgent` wires them up and never re-implements the
+policy. The `tokenCounts:` entry points above left counting to every
+caller. `CompactionTokenCounter` is the second seam: a `@Sendable`
+closure, like `CompactionSummarizer`, so `ACC-2`'s closed conformable set
+is unchanged, and `async throws` so a provider's count-tokens endpoint
+can stand behind it. `compactIfNeeded` counts each message once, checks
+the sum against `shouldCompact`, and on a trigger compacts with the same
+counts, returning `nil` without calling `summarize` otherwise.
+`compact(…countTokens:…)` is the unconditional form for a forced
+compaction. Both are additive: the array-based functions stay as the pure
+kernel the new entry points delegate to. This partly supersedes the
+"store token counts … instead of the caller passing `tokenCounts`"
+alternative below. Counting stays outside the target as before, but the
+caller now injects a counter instead of computing the counts itself.
+
 ### `SessionStore` and `JSONLFileSessionStore` (`ApusKitSessions`)
 
 ```swift

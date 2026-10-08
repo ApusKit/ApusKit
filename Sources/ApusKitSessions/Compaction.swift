@@ -62,6 +62,18 @@ public typealias CompactionSummarizer =
   @Sendable ([SessionMessage]) async throws ->
   CompactionSummary
 
+/// Counts the tokens one session message occupies in a model's context.
+///
+/// The token-counter seam of `§3.5`'s compaction policy: counting needs a
+/// model's tokenizer, which is provider territory this target cannot
+/// import (`PKG-6`), so the caller injects it — a heuristic estimate, a
+/// local tokenizer, or a provider's count-tokens endpoint, which is why
+/// the closure may suspend and throw. A `@Sendable` closure rather than a
+/// protocol keeps `ACC-2`'s closed conformable-protocol set unchanged,
+/// matching ``CompactionSummarizer``.
+public typealias CompactionTokenCounter =
+  @Sendable (SessionMessage) async throws -> Int
+
 /// Compacts an over-budget session context into a
 /// ``SessionEntryKind/compaction(summary:retainedTail:replacedThrough:)``
 /// entry (`§3.5`, `R6`).
@@ -253,6 +265,103 @@ public enum Compaction {
       message:
         "summarizer produced a \(lastTokenCount)-token summary after \(attempt) attempts, "
         + "exceeding the \(summaryTokenBudget)-token budget"
+    )
+  }
+
+  /// Measures each of `messages` with `countTokens`, in order.
+  private static func tokenCounts(
+    of messages: [SessionMessage],
+    countTokens: CompactionTokenCounter
+  ) async throws -> [Int] {
+    var counts: [Int] = []
+    counts.reserveCapacity(messages.count)
+    for message in messages {
+      counts.append(try await countTokens(message))
+    }
+    return counts
+  }
+
+  /// Compacts `messages` (oldest first) unconditionally, measuring each
+  /// message with the injected `countTokens` seam instead of taking
+  /// precomputed token counts.
+  ///
+  /// Identical in policy to ``compact(messages:tokenCounts:replacedThrough:retainedTokens:summaryTokenBudget:maxAttempts:summarize:)``
+  /// — same cut point, same self-contained `retainedTail`, same iterative
+  /// summarization — so a caller forcing a compaction never re-implements
+  /// token counting around it (`§3.5`).
+  ///
+  /// - Throws: Whatever `countTokens` throws, before `summarize` is ever
+  ///   called; otherwise as the `tokenCounts:` overload.
+  /// - Complexity: O(*n*) in `messages.count`, plus *n* calls to
+  ///   `countTokens` and at most `maxAttempts` calls to `summarize`.
+  @concurrent
+  public static func compact(
+    messages: [SessionMessage],
+    replacedThrough: EntryID,
+    retainedTokens: Int = defaultRetainedTokens,
+    summaryTokenBudget: Int,
+    maxAttempts: Int = defaultMaxAttempts,
+    countTokens: CompactionTokenCounter,
+    summarize: CompactionSummarizer
+  ) async throws -> SessionEntryKind {
+    try await Self.compact(
+      messages: messages,
+      tokenCounts: Self.tokenCounts(of: messages, countTokens: countTokens),
+      replacedThrough: replacedThrough,
+      retainedTokens: retainedTokens,
+      summaryTokenBudget: summaryTokenBudget,
+      maxAttempts: maxAttempts,
+      summarize: summarize
+    )
+  }
+
+  /// Decides whether `messages` (oldest first) must compact in a
+  /// `contextWindow`-token model and, if so, compacts them — the whole
+  /// `§3.5` policy behind its two injected seams.
+  ///
+  /// Each message is measured once with `countTokens`; their sum is the
+  /// context size checked against ``shouldCompact(contextTokens:contextWindow:reserve:)``,
+  /// and the same counts drive the cut point, so trigger and cut can
+  /// never disagree about a message's size. With the defaults this
+  /// applies `F3.3`'s normative numbers: compact once the context exceeds
+  /// `contextWindow - 16 384`, and keep roughly the 20 000 most recent
+  /// tokens verbatim.
+  ///
+  /// - Returns: The `.compaction` entry kind to append, or `nil` when the
+  ///   context still fits and `summarize` was never called.
+  /// - Throws: Whatever `countTokens` throws, before `summarize` is ever
+  ///   called; otherwise as ``compact(messages:tokenCounts:replacedThrough:retainedTokens:summaryTokenBudget:maxAttempts:summarize:)``.
+  /// - Complexity: O(*n*) in `messages.count`, plus *n* calls to
+  ///   `countTokens` and, when compacting, at most `maxAttempts` calls to
+  ///   `summarize`.
+  @concurrent
+  public static func compactIfNeeded(
+    messages: [SessionMessage],
+    contextWindow: Int,
+    replacedThrough: EntryID,
+    reserve: Int = defaultReserve,
+    retainedTokens: Int = defaultRetainedTokens,
+    summaryTokenBudget: Int,
+    maxAttempts: Int = defaultMaxAttempts,
+    countTokens: CompactionTokenCounter,
+    summarize: CompactionSummarizer
+  ) async throws -> SessionEntryKind? {
+    let counts = try await Self.tokenCounts(of: messages, countTokens: countTokens)
+    guard
+      Self.shouldCompact(
+        contextTokens: counts.reduce(0, +),
+        contextWindow: contextWindow,
+        reserve: reserve
+      )
+    else { return nil }
+    return try await Self.compact(
+      messages: messages,
+      tokenCounts: counts,
+      replacedThrough: replacedThrough,
+      retainedTokens: retainedTokens,
+      summaryTokenBudget: summaryTokenBudget,
+      maxAttempts: maxAttempts,
+      summarize: summarize
     )
   }
 }

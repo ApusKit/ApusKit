@@ -127,6 +127,7 @@ Legend: ⬜ planned · 🔨 in progress · ✅ done
 ### M2 — Sessions
 - [x] JSONL tree v3 codec + context rebuild (F3.1) (2026-08-26)
 - [x] Compaction (F3.3) (2026-08-26)
+  - [x] Token-counter seam: `Compaction.compactIfNeeded` owns trigger + cut + compact behind injected counter and summarizer (§3.5, amended 2026-10-01) (2026-10-08)
 - [x] File session store + pluggable store protocol (F3.4) (2026-08-26)
 - [ ] **Gate:** a session recorded with pi decodes, rebuilds context, and re-encodes byte-for-byte (F3.2)
 
