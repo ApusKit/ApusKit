@@ -498,6 +498,57 @@ struct AgentGateTests {
     #expect(await agent.queuedFollowUpCount == 0)
   }
 
+  @Test(
+    "LOOP-6: abort() reaches a run started as the previous run ended",
+    .timeLimit(.minutes(1))
+  )
+  func abortReachesRunStartedAtAgentEnd() async throws {
+    // Sibling of `runCalledAtAgentEndStartsAFreshRun`. That test cannot
+    // see a `run(_:)` that still sets `runningTask = nil` after its await
+    // as well: the first caller then resumes late and wipes the SECOND
+    // run's task, leaving that run unreachable by `abort()` and letting a
+    // third `run(_:)` start a concurrent drain. Holding the second run open
+    // on a gate until the first caller has returned exposes it.
+    let gate = FollowUpGate()
+    let agent = makeAgent(
+      provider: ScriptedProvider(scripts: [
+        ScriptedTurn.text("first done"),
+        ScriptedTurn.toolCall(
+          id: "call_1", name: "gate_tool", argumentsJSON: #"{"value":"hold"}"#),
+        ScriptedTurn.text("second done"),
+      ]),
+      tool: GateTool(gate: gate)
+    )
+
+    // Same seam as the sibling test: the second run is enqueued on the
+    // actor in the window between the drain ending and the first caller
+    // resuming.
+    let (secondRuns, secondRunsContinuation) = AsyncStream<Task<AssistantMessage, Never>>
+      .makeStream()
+    await agent.setRunEndingProbe { agent in
+      agent.runEndingProbe = nil
+      secondRunsContinuation.yield(
+        Task { await agent.run(UserMessage(content: [.text("second")])) })
+      secondRunsContinuation.finish()
+    }
+
+    // Returning means the first caller has resumed — after which a stale
+    // clear in `run(_:)` would already have wiped the second run's task.
+    _ = await agent.run(UserMessage(content: [.text("first")]))
+    var secondRun: Task<AssistantMessage, Never>?
+    for await run in secondRuns {
+      secondRun = run
+    }
+    let run = try #require(secondRun)
+
+    await gate.waitUntilStarted()
+    await agent.abort()
+    await gate.release()
+
+    let second = await run.value
+    #expect(second.stopReason == .aborted)
+  }
+
   @Test("LOOP-4: a .length stop fails all tool calls of that message, unexecuted")
   func lengthStopFailsToolCallsUnexecuted() async throws {
     let log = RequestLog()
