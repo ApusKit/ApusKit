@@ -453,6 +453,51 @@ struct AgentGateTests {
     #expect(agentStarts == 1)
   }
 
+  @Test(
+    "LOOP-1: run(_:) called as a run ends starts a fresh run, not the previous one's result",
+    .timeLimit(.minutes(1))
+  )
+  func runCalledAtAgentEndStartsAFreshRun() async throws {
+    // Regression test (TEST-7) for the race described in proposal 0007:
+    // `runningTask` used to be cleared only once the first caller resumed
+    // from `await task.value`. A `run(_:)` served on the actor after the
+    // drain had finished but before that resumption queued its message,
+    // found the finished-but-non-nil task, returned the PREVIOUS run's
+    // result, and stranded its message in the follow-up queue.
+    let agent = makeAgent(
+      provider: ScriptedProvider(scripts: [
+        ScriptedTurn.text("first done"),
+        ScriptedTurn.text("second done"),
+      ]),
+      tool: RecordingTool()
+    )
+
+    // The seam runs synchronously on the actor inside the drain's final
+    // stretch. A `Task` created there with the agent's isolation is
+    // enqueued directly on the actor (Swift Evolution SE-0431), so it runs after the drain
+    // task completes but strictly before the first caller resumes from
+    // `await task.value` — the exact window, every time, with no timing.
+    let (secondRuns, secondRunsContinuation) = AsyncStream<Task<AssistantMessage, Never>>
+      .makeStream()
+    await agent.setRunEndingProbe { agent in
+      agent.runEndingProbe = nil
+      secondRunsContinuation.yield(
+        Task { await agent.run(UserMessage(content: [.text("second")])) })
+      secondRunsContinuation.finish()
+    }
+
+    let first = await agent.run(UserMessage(content: [.text("first")]))
+    var secondRun: Task<AssistantMessage, Never>?
+    for await run in secondRuns {
+      secondRun = run
+    }
+    let second = try #require(await secondRun?.value)
+
+    #expect(text(of: first.content) == "first done")
+    #expect(text(of: second.content) == "second done")
+    #expect(await agent.queuedFollowUpCount == 0)
+  }
+
   @Test("LOOP-4: a .length stop fails all tool calls of that message, unexecuted")
   func lengthStopFailsToolCallsUnexecuted() async throws {
     let log = RequestLog()

@@ -111,11 +111,15 @@ public actor Agent {
       return await runningTask.value
     }
 
+    // The drain clears `runningTask` itself, in the same synchronous
+    // stretch as its final empty-queue check, so no `run(_:)` can observe a
+    // finished-but-non-nil task. Clearing it here, after this caller
+    // resumes, left a window in which a racing call returned the previous
+    // run's result and stranded its message (`LOOP-1`) — and, once a new
+    // run had started in that window, would have cleared *its* task.
     let task = Task { await self.drainFollowUpQueue() }
     runningTask = task
-    let result = await task.value
-    runningTask = nil
-    return result
+    return await task.value
   }
 
   /// How many follow-up messages are queued but not yet drained.
@@ -128,6 +132,24 @@ public actor Agent {
   /// test pass for the wrong reason instead of failing.
   package var queuedFollowUpCount: Int {
     followUpQueue.count
+  }
+
+  /// Runs synchronously on the actor in a run's final stretch, just
+  /// before `.agentEnd` is emitted.
+  ///
+  /// A test seam, `package`-visible per `PKG-8` (never `@_spi`, never
+  /// `public`). The `run(_:)` race regression test (`TEST-7`) has to call
+  /// `run(_:)` after a drain has decided to stop but before its first
+  /// caller resumes. An event-stream observer cannot hit that window
+  /// deterministically: `AsyncStream` wakes it on the generic executor, and
+  /// its hop back to the actor races the first caller's resumption. A `Task`
+  /// created here with the agent's isolation is enqueued on the actor
+  /// directly, ahead of that resumption.
+  package var runEndingProbe: (@Sendable (isolated Agent) -> Void)?
+
+  /// Installs `probe` as `runEndingProbe`.
+  package func setRunEndingProbe(_ probe: (@Sendable (isolated Agent) -> Void)?) {
+    runEndingProbe = probe
   }
 
   /// Cancels any in-flight run.
